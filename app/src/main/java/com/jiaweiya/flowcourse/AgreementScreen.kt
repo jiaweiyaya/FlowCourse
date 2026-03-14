@@ -1,4 +1,4 @@
-package com.jiaweiya.flowcourse_test1
+package com.jiaweiya.flowcourse
 
 import android.app.Activity
 import androidx.activity.compose.BackHandler
@@ -156,14 +156,14 @@ fun AgreementScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "https://github.com/jiaweiyaya/FlowCourse_test1",
+                                text = "https://github.com/jiaweiyaya/FlowCourse",
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary, // 链接用主题色突出
                                 textDecoration = TextDecoration.Underline, // 加上下划线
                                 modifier = Modifier
                                     .padding(vertical = 4.dp)
                                     .clickable {
-                                        uriHandler.openUri("https://github.com/jiaweiyaya/FlowCourse_test1")
+                                        uriHandler.openUri("https://github.com/jiaweiyaya/FlowCourse")
                                     }
                             )
 
@@ -286,14 +286,14 @@ fun AgreementScreen(
                 )
 
                 Text(
-                    text = "https://github.com/jiaweiyaya/FlowCourse_test1",
+                    text = "https://github.com/jiaweiyaya/FlowCourse",
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.primary,
                     textDecoration = TextDecoration.Underline,
                     modifier = Modifier
                         .padding(vertical = 4.dp)
                         .clickable {
-                            uriHandler.openUri("https://github.com/jiaweiyaya/FlowCourse_test1")
+                            uriHandler.openUri("https://github.com/jiaweiyaya/FlowCourse")
                         }
                 )
 

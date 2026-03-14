@@ -1,4 +1,4 @@
-package com.jiaweiya.flowcourse_test1
+package com.jiaweiya.flowcourse
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Spring

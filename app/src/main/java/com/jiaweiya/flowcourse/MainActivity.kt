@@ -1,4 +1,4 @@
-package com.jiaweiya.flowcourse_test1
+package com.jiaweiya.flowcourse
 
 import android.content.Context
 import android.net.Uri
@@ -18,8 +18,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -39,11 +37,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -54,7 +50,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -65,13 +60,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.jiaweiya.flowcourse_test1.ui.theme.FlowCourse_test1Theme
+import com.jiaweiya.flowcourse.ui.theme.FlowCourseTheme
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
@@ -82,12 +74,8 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 import android.util.Base64
-import androidx.core.content.FileProvider
-import java.io.File
-import android.content.ClipData
-import android.content.ClipboardManager
 
-import com.jiaweiya.flowcourse_test1.parser.CqwlxyParser
+import com.jiaweiya.flowcourse.parser.CqwlxyParser
 
 // 数据结构定义
 data class NodeTime(val label: String, val start: String, val end: String, val isVisible: Boolean = true)
@@ -299,7 +287,7 @@ class MainActivity : ComponentActivity() {
                     .apply()
             }
 
-            FlowCourse_test1Theme(darkTheme = useDarkTheme) {
+            FlowCourseTheme(darkTheme = useDarkTheme) {
                 val navController = rememberNavController()
 
                 // 获取用于切换到主线程的协程作用域
@@ -814,7 +802,7 @@ fun TimetableScreen(
                         }
                         DropdownMenu(expanded = showDownloadMenu, onDismissRequest = { showDownloadMenu = false }) {
                             DropdownMenuItem(text = { Text("从教务系统导入") }, onClick = { showDownloadMenu = false; onNavigateToBrowser() })
-                            DropdownMenuItem(text = { Text("从文件导入 (HTML、TXT、XLS)") }, onClick = {
+                            DropdownMenuItem(text = { Text("从文件导入 (HTML、TXt)") }, onClick = {
                                 showDownloadMenu = false
                                 val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
                                     addCategory(android.content.Intent.CATEGORY_OPENABLE)

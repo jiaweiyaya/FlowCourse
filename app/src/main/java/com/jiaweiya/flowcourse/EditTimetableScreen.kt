@@ -1,4 +1,4 @@
-package com.jiaweiya.flowcourse_test1
+package com.jiaweiya.flowcourse
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*

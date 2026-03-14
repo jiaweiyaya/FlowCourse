@@ -1,4 +1,4 @@
-package com.jiaweiya.flowcourse_test1
+package com.jiaweiya.flowcourse
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
@@ -114,9 +114,9 @@ fun AboutScreen(onBackClick: () -> Unit) {
                 append("1群：1074858712\n")
 
                 append("\n如果您喜欢它（或者喜欢我~），欢迎在 GitHub 上为我点 Star 喵~（这也会给我持续更新和维护的动力哦喵~）：\n")
-                pushStringAnnotation(tag = "URL", annotation = "https://github.com/jiaweiyaya/FlowCourse_test1")
+                pushStringAnnotation(tag = "URL", annotation = "https://github.com/jiaweiyaya/FlowCourse")
                 withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline)) {
-                    append("https://github.com/jiaweiyaya/FlowCourse_test1")
+                    append("https://github.com/jiaweiyaya/FlowCourse")
                 }
                 pop()
 

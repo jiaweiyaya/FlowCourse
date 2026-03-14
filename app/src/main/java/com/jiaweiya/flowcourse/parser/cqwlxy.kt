@@ -1,8 +1,8 @@
-package com.jiaweiya.flowcourse_test1.parser
+package com.jiaweiya.flowcourse.parser
 
 import android.content.Context
 import android.net.Uri
-import com.jiaweiya.flowcourse_test1.Course
+import com.jiaweiya.flowcourse.Course
 import java.io.BufferedReader
 import java.io.InputStreamReader
 

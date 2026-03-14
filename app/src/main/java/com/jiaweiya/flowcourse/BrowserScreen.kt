@@ -1,4 +1,4 @@
-package com.jiaweiya.flowcourse_test1
+package com.jiaweiya.flowcourse
 
 import android.annotation.SuppressLint
 import android.content.ClipData
@@ -48,11 +48,10 @@ import com.tencent.smtt.export.external.interfaces.WebResourceRequest
 import com.tencent.smtt.export.external.interfaces.WebResourceResponse
 import com.tencent.smtt.sdk.CookieManager
 import com.tencent.smtt.sdk.WebChromeClient
-import com.tencent.smtt.sdk.WebSettings
 import com.tencent.smtt.sdk.WebView
 import com.tencent.smtt.sdk.WebViewClient
 import java.io.ByteArrayInputStream
-import com.jiaweiya.flowcourse_test1.parser.CqwlxyParser
+import com.jiaweiya.flowcourse.parser.CqwlxyParser
 
 // 纯净伪装的 User-Agent 字符串
 private const val UA_MOBILE = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"

@@ -5,13 +5,13 @@ plugins {
 }
 
 android {
-    namespace = "com.jiaweiya.flowcourse_test1"
+    namespace = "com.jiaweiya.flowcourse"
     compileSdk {
         version = release(36)
     }
 
     defaultConfig {
-        applicationId = "com.jiaweiya.flowcourse_test1"
+        applicationId = "com.jiaweiya.flowcourse"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

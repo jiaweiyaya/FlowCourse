@@ -1,6 +1,5 @@
-package com.jiaweiya.flowcourse_test1.ui.theme
+package com.jiaweiya.flowcourse.ui.theme
 
-import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +29,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun FlowCourse_test1Theme(
+fun FlowCourseTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // 🌟 核心修改：把这里的 true 改成 false！
     // 这样 Android 12+ 的手机才会乖乖使用你指定的紫色，而不是强行用壁纸色！

@@ -1,4 +1,4 @@
-package com.jiaweiya.flowcourse_test1.model
+package com.jiaweiya.flowcourse.model
 
 // 课程的数据定义
 data class Course(

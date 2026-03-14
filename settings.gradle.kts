@@ -19,6 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FlowCourse_test1"
+rootProject.name = "FlowCourse"
 include(":app")
  

@@ -1,4 +1,4 @@
-package com.jiaweiya.flowcourse_test1
+package com.jiaweiya.flowcourse
 
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -49,13 +49,11 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.res.painterResource
 import kotlin.math.roundToInt
 import android.content.ContentValues
 import android.graphics.Bitmap
@@ -63,7 +61,6 @@ import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import androidx.compose.material.icons.filled.Download
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -72,12 +69,12 @@ import kotlinx.coroutines.withContext
 // 定义图标数据类
 data class AppIconData(val id: Int, val alias: String, val iconRes: Int, val name: String)
 val appIconsList = listOf(
-    AppIconData(1, "com.jiaweiya.flowcourse_test1.Alias1", R.drawable.app_icon, "默认图标"),
-    AppIconData(2, "com.jiaweiya.flowcourse_test1.Alias2", R.drawable.app_icon2, "Jiaweiya"),
-    AppIconData(3, "com.jiaweiya.flowcourse_test1.Alias3", R.drawable.app_icon3, "JM地狱！"),
-    AppIconData(4, "com.jiaweiya.flowcourse_test1.Alias4", R.drawable.app_icon4, "待定"),
-    AppIconData(5, "com.jiaweiya.flowcourse_test1.Alias5", R.drawable.app_icon5, "待定"),
-    AppIconData(6, "com.jiaweiya.flowcourse_test1.Alias6", R.drawable.app_icon6, "待定")
+    AppIconData(1, "com.jiaweiya.flowcourse.Alias1", R.drawable.app_icon, "默认图标"),
+    AppIconData(2, "com.jiaweiya.flowcourse.Alias2", R.drawable.app_icon2, "Jiaweiya"),
+    AppIconData(3, "com.jiaweiya.flowcourse.Alias3", R.drawable.app_icon3, "JM地狱！"),
+    AppIconData(4, "com.jiaweiya.flowcourse.Alias4", R.drawable.app_icon4, "待定"),
+    AppIconData(5, "com.jiaweiya.flowcourse.Alias5", R.drawable.app_icon5, "待定"),
+    AppIconData(6, "com.jiaweiya.flowcourse.Alias6", R.drawable.app_icon6, "待定")
 )
 
 
@@ -647,7 +644,7 @@ fun SettingsScreen(
                     Button(
                         onClick = {
                             showFeedbackChannelDialog = false
-                            uriHandler.openUri("https://github.com/jiaweiyaya/FlowCourse_test1/issues/new")
+                            uriHandler.openUri("https://github.com/jiaweiyaya/FlowCourse/issues/new")
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {

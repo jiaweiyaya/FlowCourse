@@ -25,11 +25,10 @@
 
 ## 📸 应用预览
 
-![Image](https://github.com/user-attachments/assets/5f379bf5-1639-48b8-8f04-081a1443c930)
-![Image](https://github.com/user-attachments/assets/8d41b85e-da67-4d16-b8d8-f9f5a5818291)
-![Image](https://github.com/user-attachments/assets/0a969a93-9ba6-41be-871f-73e68e2e9de1)
-![Image](https://github.com/user-attachments/assets/1a273a6a-b677-408a-9250-e334de3a5bfb)
-
+| 主界面 | 课表列表 | 课程详情 | 课程管理 |
+| :---: | :---: | :---: | :---: |
+| <img src="https://github.com/user-attachments/assets/1a273a6a-b677-408a-9250-e334de3a5bfb" width="200"/> | <img src="https://github.com/user-attachments/assets/8d41b85e-da67-4d16-b8d8-f9f5a5818291" width="200"/> | <img src="https://github.com/user-attachments/assets/5f379bf5-1639-48b8-8f04-081a1443c930" width="200"/> | <img src="https://github.com/user-attachments/assets/0a969a93-9ba6-41be-871f-73e68e2e9de1" width="200"/> |
+| 美观、清晰、高可自定义 | 界面交互舒适 | 完整、全面展示 | 操作便捷 |
 ---
 
 ## 🛠️ 技术栈

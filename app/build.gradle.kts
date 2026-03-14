@@ -17,6 +17,19 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
+        ndk {
+            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
+        }
+
+        splits {
+            abi {
+                isEnable = true // 开启 ABI 分拆
+                reset() // 重置默认配置
+                include("armeabi-v7a", "arm64-v8a", "x86_64")
+                isUniversalApk = true
+            }
+        }
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -156,12 +156,16 @@ fun SettingsScreen(
     onBrowserSettingsSave: (String, Int, Int) -> Unit,
     savedDesktopWidth: Int,
     savedDesktopHeight: Int,
+    autoCheckUpdate: Boolean,
+    onAutoCheckUpdateChange: (Boolean) -> Unit,
+    onManualCheckUpdate: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToAgreement: () -> Unit,
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val currentAppVersion = remember { try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } catch (e: Exception) { "1.0.0" } }
     val coroutineScope = rememberCoroutineScope()
     var showFeedbackChannelDialog by remember { mutableStateOf(false) } // 控制渠道选择弹窗
     var showQQGroupDialog by remember { mutableStateOf(false) }         // 控制QQ二维码弹窗
@@ -336,6 +340,36 @@ fun SettingsScreen(
             }
 
             AppIconSettingsRow()
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+
+            Text("更新", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onManualCheckUpdate() }
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("立即检查更新", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+
+                Text(
+                    text = "当前版本 $currentAppVersion",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("每天自动检查更新", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                Switch(checked = autoCheckUpdate, onCheckedChange = onAutoCheckUpdateChange, modifier = Modifier.scale(1.0f))
+            }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
 

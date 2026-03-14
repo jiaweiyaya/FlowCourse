@@ -29,11 +29,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(onBackClick: () -> Unit) {
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val currentAppVersion = remember {
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
+        } catch (e: Exception) {
+            "1.0.0"
+        }
+    }
     var isExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -73,7 +82,11 @@ fun AboutScreen(onBackClick: () -> Unit) {
                         color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = "版本 1.0.0", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = "版本 $currentAppVersion",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
                 // 用 weight(1f) 占满 FlowCourse 右侧到屏幕边缘的剩余空间

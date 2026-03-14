@@ -74,12 +74,22 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 import android.util.Base64
+import androidx.compose.ui.platform.LocalUriHandler
+import java.net.URL
+import java.net.HttpURLConnection
 
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
 
 // 数据结构定义
 data class NodeTime(val label: String, val start: String, val end: String, val isVisible: Boolean = true)
 data class TimeProfile(val id: Int, val name: String, val nodes: List<NodeTime>)
+
+// GitHub API 数据结构
+data class GithubRelease(
+    val tag_name: String,
+    val body: String,
+    val html_url: String
+)
 
 val nodeTimes = listOf(
     NodeTime("1", "08:10", "08:55"),
@@ -135,7 +145,7 @@ fun encodeShareData(context: Context, courses: List<Course>): String {
     GZIPOutputStream(bos).use { it.write(json.toByteArray(Charsets.UTF_8)) }
     val compressed = Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP)
 
-    return "这是FlowCourse导出的分享文件，可以通过https://github.com/jiaweiyaya/FlowCourse下载FlowCourse课程表软件来解析和显示课表。分享者软件版本：$version\n---\n$compressed"
+    return "这是FlowCourse导出的分享文件，可以通过https://github.com/jiaweiyaya/FlowCourse/releases下载FlowCourse课程表软件来解析和显示课表。分享者软件版本：$version\n---\n$compressed"
 }
 
 // 解析与解密分享数据
@@ -151,6 +161,50 @@ fun decodeShareData(data: String): List<Course>? {
     } catch (e: Exception) {
         e.printStackTrace()
         null
+    }
+}
+
+// 检查更新的网络请求函数
+suspend fun checkAppUpdate(currentVersion: String, onResult: (GithubRelease?, Boolean) -> Unit) {
+    withContext(Dispatchers.IO) {
+        try {
+            val url = URL("https://api.github.com/repos/jiaweiyaya/FlowCourse/releases/latest")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+
+            if (connection.responseCode == 200) {
+                val json = connection.inputStream.bufferedReader().readText()
+                val release = Gson().fromJson(json, GithubRelease::class.java)
+
+                // 提取版本号数字部分进行比较 (去掉 "v" 等前缀)
+                val remoteVersion = release.tag_name.replace(Regex("[^0-9.]"), "")
+                val localVersion = currentVersion.replace(Regex("[^0-9.]"), "")
+
+                fun toInts(v: String) = v.split(".").map { it.toIntOrNull() ?: 0 }
+                val remoteParts = toInts(remoteVersion)
+                val localParts = toInts(localVersion)
+
+                var isNewer = false
+                for (i in 0 until maxOf(remoteParts.size, localParts.size)) {
+                    val r = remoteParts.getOrNull(i) ?: 0
+                    val l = localParts.getOrNull(i) ?: 0
+                    if (r > l) { isNewer = true; break }
+                    if (r < l) { break }
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (isNewer) onResult(release, false) else onResult(null, true)
+                }
+            } else {
+                withContext(Dispatchers.Main) { onResult(null, false) }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            withContext(Dispatchers.Main) { onResult(null, false) }
+        }
     }
 }
 
@@ -255,6 +309,10 @@ class MainActivity : ComponentActivity() {
             var realTimeSlider by remember { mutableStateOf(sharedPrefs.getBoolean("real_time_slider", false)) }    // 记录是否开启滑块实时更新
             var parserId by remember { mutableIntStateOf(sharedPrefs.getInt("parser_id", 1)) }  // 记录当前选择的课表解析脚本 ID
 
+            var autoCheckUpdate by remember { mutableStateOf(sharedPrefs.getBoolean("auto_check_update", true)) }
+            var updateInfo by remember { mutableStateOf<GithubRelease?>(null) }
+            val currentAppVersion = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0" } catch (e: Exception) { "1.0.0" }
+
             // 用来存储用户选择要展示的冲突课程的 ID 集合
             var preferredConflictIds by remember { mutableStateOf(sharedPrefs.getStringSet("preferred_conflict_ids", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()) }
 
@@ -284,6 +342,7 @@ class MainActivity : ComponentActivity() {
                     .putStringSet("preferred_conflict_ids", preferredConflictIds.map { it.toString() }.toSet())
                     .putBoolean("real_time_slider", realTimeSlider)
                     .putInt("parser_id", parserId)
+                    .putBoolean("auto_check_update", autoCheckUpdate)
                     .apply()
             }
 
@@ -330,6 +389,17 @@ class MainActivity : ComponentActivity() {
                     } else if (!hasAgreed) {
                         // 如果已经不是首次，但是还没点过同意，直接弹出协议页
                         navController.navigate("Agreement")
+                    }
+                    if (autoCheckUpdate) {
+                        val todayStr = LocalDate.now().toString()
+                        val lastCheckDate = sharedPrefs.getString("last_update_check_date", "")
+                        // 每天只在第一次打开时检查一次
+                        if (lastCheckDate != todayStr) {
+                            checkAppUpdate(currentAppVersion) { release, _ ->
+                                if (release != null) updateInfo = release
+                            }
+                            sharedPrefs.edit().putString("last_update_check_date", todayStr).apply()
+                        }
                     }
                 }
 
@@ -407,6 +477,22 @@ class MainActivity : ComponentActivity() {
                                     parserId = parserId,
                                     onParserIdChange = { parserId = it },
                                     themeMode = themeMode, onThemeChange = { themeMode = it },
+                                    autoCheckUpdate = autoCheckUpdate,
+                                    onAutoCheckUpdateChange = { autoCheckUpdate = it },
+                                    onManualCheckUpdate = {
+                                        Toast.makeText(context, "正在检查更新...", Toast.LENGTH_SHORT).show()
+                                        coroutineScope.launch {
+                                            checkAppUpdate(currentAppVersion) { release, isLatest ->
+                                                if (release != null) {
+                                                    updateInfo = release // 弹出更新对话框
+                                                } else if (isLatest) {
+                                                    Toast.makeText(context, "当前已是最新版本 ($currentAppVersion)", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "检查失败，请检查网络或是否受限(Github可能需要代理)", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    },
                                     showBgImage = showBgImage, onShowBgImageChange = { showBgImage = it },
                                     bgImageUri = bgImageUri, onBgImageUriChange = { bgImageUri = it },
                                     bgOpacity = bgOpacity, onBgOpacityChange = { bgOpacity = it },
@@ -594,7 +680,7 @@ class MainActivity : ComponentActivity() {
                                         // 使用协程强制回到主线程操作 UI
                                         coroutineScope.launch {
                                             // 只有当前确实在 Browser 页面时才允许退栈
-                                            // 即使网页 JS 抽风触发了 10 次回调，也只会退栈一次，不会把 Home 界面给干掉
+                                            // 即使网页触发 10 次回调，也只会退栈一次，不会把 Home 界面给干掉
                                             if (navController.currentDestination?.route == "Browser") {
                                                 navController.popBackStack()
                                             }
@@ -609,6 +695,30 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             }
+                        }
+
+                        if (updateInfo != null) {
+                            val uriHandler = LocalUriHandler.current
+                            AlertDialog(
+                                onDismissRequest = { updateInfo = null },
+                                title = { Text("发现新版本：${updateInfo!!.tag_name}", fontWeight = FontWeight.Bold) },
+                                text = {
+                                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                                        Text("更新内容：", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(updateInfo!!.body, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                confirmButton = {
+                                    Button(onClick = {
+                                        uriHandler.openUri(updateInfo!!.html_url)
+                                        updateInfo = null
+                                    }) { Text("前往 GitHub 下载") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { updateInfo = null }) { Text("暂不更新", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                }
+                            )
                         }
 
                         // 检测到解析完成的课表数据时弹出导入方式选择对话框
@@ -802,7 +912,7 @@ fun TimetableScreen(
                         }
                         DropdownMenu(expanded = showDownloadMenu, onDismissRequest = { showDownloadMenu = false }) {
                             DropdownMenuItem(text = { Text("从教务系统导入") }, onClick = { showDownloadMenu = false; onNavigateToBrowser() })
-                            DropdownMenuItem(text = { Text("从文件导入 (HTML、TXt)") }, onClick = {
+                            DropdownMenuItem(text = { Text("从文件导入 (HTML、TXT)") }, onClick = {
                                 showDownloadMenu = false
                                 val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
                                     addCategory(android.content.Intent.CATEGORY_OPENABLE)

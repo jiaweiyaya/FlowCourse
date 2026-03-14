@@ -135,6 +135,8 @@ fun saveQrCodeToGallery(context: Context, coroutineScope: CoroutineScope) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    parserId: Int,
+    onParserIdChange: (Int) -> Unit,
     themeMode: Int,
     onThemeChange: (Int) -> Unit,
     showBgImage: Boolean,
@@ -167,6 +169,11 @@ fun SettingsScreen(
     var showFeedbackChannelDialog by remember { mutableStateOf(false) } // 控制渠道选择弹窗
     var showQQGroupDialog by remember { mutableStateOf(false) }         // 控制QQ二维码弹窗
     var showThemeDialog by remember { mutableStateOf(false) }
+
+    var showParserDialog by remember { mutableStateOf(false) }
+    val parsersList = listOf(Pair(1, "重庆文理学院"))
+    val currentParserName = parsersList.find { it.first == parserId }?.second ?: "未知脚本"
+
     val themeOptions = listOf("跟随系统", "浅色模式", "深色模式")
 
     val sysDefaultUrl = "http://www.cqwu.edu.cn/redir/redirTmp.jsp"
@@ -333,6 +340,20 @@ fun SettingsScreen(
 
             AppIconSettingsRow()
 
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+
+            Text("课表解析设置", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showParserDialog = true }
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("课表解析脚本", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text(currentParserName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
 
             // 课表呈现设置
@@ -530,6 +551,53 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showThemeDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.primary) }
+            }
+        )
+    }
+
+    // 解析脚本选择弹窗
+    if (showParserDialog) {
+        AlertDialog(
+            onDismissRequest = { showParserDialog = false },
+            title = { Text("选择课表解析脚本", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    parsersList.forEach { (id, name) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onParserIdChange(id)
+                                    showParserDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = parserId == id, onClick = { onParserIdChange(id); showParserDialog = false })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(name, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 点击后触发之前的 showFeedbackChannelDialog
+                    Text(
+                        text = "找不到你的学校的解析脚本？点我联系Jiaweiya",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showParserDialog = false
+                                showFeedbackChannelDialog = true
+                            }
+                            .padding(vertical = 8.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showParserDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.primary) }
             }
         )
     }

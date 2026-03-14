@@ -52,6 +52,7 @@ import com.tencent.smtt.sdk.WebSettings
 import com.tencent.smtt.sdk.WebView
 import com.tencent.smtt.sdk.WebViewClient
 import java.io.ByteArrayInputStream
+import com.jiaweiya.flowcourse_test1.parser.CqwlxyParser
 
 // 纯净伪装的 User-Agent 字符串
 private const val UA_MOBILE = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
@@ -198,7 +199,8 @@ fun BrowserScreen(
                                     }
 
                                     if (htmlContent.contains("星期一")) {
-                                        val newCourses = withContext(Dispatchers.IO) { parseCourseFromHtml(htmlContent) }
+// ✅ 修改后的代码：调用从 HTML 解析的方法（parseCourseFromHtml）
+                                        val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(htmlContent) }
                                         if (newCourses.isNotEmpty()) {
                                             onImportCourses(newCourses)
                                             Toast.makeText(context, "大功告成！导入了 ${newCourses.size} 节课", Toast.LENGTH_SHORT).show()

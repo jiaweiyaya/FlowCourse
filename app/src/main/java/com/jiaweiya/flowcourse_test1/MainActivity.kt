@@ -77,6 +77,17 @@ import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import kotlin.math.roundToInt
 import androidx.compose.ui.res.painterResource
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
+import android.util.Base64
+import androidx.core.content.FileProvider
+import java.io.File
+import android.content.ClipData
+import android.content.ClipboardManager
+
+import com.jiaweiya.flowcourse_test1.parser.CqwlxyParser
 
 // 数据结构定义
 data class NodeTime(val label: String, val start: String, val end: String, val isVisible: Boolean = true)
@@ -123,6 +134,37 @@ val mockCourses = listOf(
 
 val timeSlotHeight = 65.dp
 val sideBarWidth = 35.dp
+
+// 加密与生成分享数据
+fun encodeShareData(context: Context, courses: List<Course>): String {
+    val version = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+    } catch (e: Exception) { "1.0.0" }
+
+    val json = Gson().toJson(courses)
+    val bos = ByteArrayOutputStream()
+    // GZip 压缩极大减小体积
+    GZIPOutputStream(bos).use { it.write(json.toByteArray(Charsets.UTF_8)) }
+    val compressed = Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP)
+
+    return "这是FlowCourse导出的分享文件，可以通过https://github.com/jiaweiyaya/FlowCourse下载FlowCourse课程表软件来解析和显示课表。分享者软件版本：$version\n---\n$compressed"
+}
+
+// 解析与解密分享数据
+fun decodeShareData(data: String): List<Course>? {
+    return try {
+        val parts = data.split("\n---\n")
+        val payload = if (parts.size > 1) parts[1].trim() else parts[0].trim()
+        val bytes = Base64.decode(payload, Base64.NO_WRAP)
+        val bis = ByteArrayInputStream(bytes)
+        val json = GZIPInputStream(bis).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val type = object : TypeToken<List<Course>>() {}.type
+        Gson().fromJson(json, type)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}
 
 @Composable
 fun rememberBitmapFromUri(uriString: String?): ImageBitmap? {
@@ -223,6 +265,7 @@ class MainActivity : ComponentActivity() {
             var showConflictWarning by remember { mutableStateOf(sharedPrefs.getBoolean("show_conflict", true)) }
             var conflictColor by remember { mutableLongStateOf(sharedPrefs.getLong("conflict_color", 0xFFFF0000)) }
             var realTimeSlider by remember { mutableStateOf(sharedPrefs.getBoolean("real_time_slider", false)) }    // 记录是否开启滑块实时更新
+            var parserId by remember { mutableIntStateOf(sharedPrefs.getInt("parser_id", 1)) }  // 记录当前选择的课表解析脚本 ID
 
             // 用来存储用户选择要展示的冲突课程的 ID 集合
             var preferredConflictIds by remember { mutableStateOf(sharedPrefs.getStringSet("preferred_conflict_ids", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()) }
@@ -252,6 +295,7 @@ class MainActivity : ComponentActivity() {
                     .putLong("conflict_color", conflictColor)
                     .putStringSet("preferred_conflict_ids", preferredConflictIds.map { it.toString() }.toSet())
                     .putBoolean("real_time_slider", realTimeSlider)
+                    .putInt("parser_id", parserId)
                     .apply()
             }
 
@@ -372,6 +416,8 @@ class MainActivity : ComponentActivity() {
                                 popExitTransition = { slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.Right, animationSpec = tween(400)) }
                             ) {
                                 SettingsScreen(
+                                    parserId = parserId,
+                                    onParserIdChange = { parserId = it },
                                     themeMode = themeMode, onThemeChange = { themeMode = it },
                                     showBgImage = showBgImage, onShowBgImageChange = { showBgImage = it },
                                     bgImageUri = bgImageUri, onBgImageUriChange = { bgImageUri = it },
@@ -626,161 +672,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// 文件解析算法
-fun parseCourseFromHtml(content: String): List<Course> {
-    val courses = mutableListOf<Course>()
-    try {
-        val trRegex = Regex("<tr.*?>([\\s\\S]*?)</tr>", setOf(RegexOption.IGNORE_CASE))
-        val trMatches = trRegex.findAll(content)
-
-        val colors = listOf(0xFFE3F2FD, 0xFFF3E5F5, 0xFFE8F5E9, 0xFFFFF3E0, 0xFFFFEBEE, 0xFFE0F7FA, 0xFFFBE9E7, 0xFFF0F4C3, 0xFFEDE7F6, 0xFFE8EAF6).map { it.toLong() }
-        val courseColors = mutableMapOf<String, Long>()
-
-        for (tr in trMatches) {
-            val trContent = tr.groupValues[1]
-            val tdRegex = Regex("<td.*?>([\\s\\S]*?)</td>", setOf(RegexOption.IGNORE_CASE))
-            val tdMatches = tdRegex.findAll(trContent).toList()
-
-            if (tdMatches.size >= 7) {
-                val daysTds = tdMatches.takeLast(7)
-                for ((dayIndex, td) in daysTds.withIndex()) {
-                    val dayOfWeek = dayIndex + 1
-                    val divRegex = Regex("<div[^>]*>([\\s\\S]*?)</div>", setOf(RegexOption.IGNORE_CASE))
-                    val divMatches = divRegex.findAll(td.groupValues[1])
-
-                    for (div in divMatches) {
-                        val divContent = div.groupValues[1]
-                        val parts = divContent.split(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE))
-                            .map { it.replace(Regex("<[^>]*>"), "").trim() }
-                            .filter { it.isNotEmpty() }
-
-                        if (parts.size >= 4) {
-                            val name = parts[0]
-                            val teacher = parts[1]
-                            val timeInfo = parts[2]
-                            val room = parts[3]
-                            val color = courseColors.getOrPut(name) { colors.random() }
-
-                            val bracketIndex = timeInfo.indexOf('[')
-                            if (bracketIndex != -1) {
-                                val weeksStr = timeInfo.substring(0, bracketIndex)
-                                val nodesStr = timeInfo.substring(bracketIndex + 1).removeSuffix("]")
-                                val weekList = parseWeeks(weeksStr)
-                                val (startNode, endNode) = parseNodes(nodesStr)
-
-                                courses.add(
-                                    Course(
-                                        id = 0, name = name, room = room, teacher = teacher,
-                                        dayOfWeek = dayOfWeek, startNode = startNode, endNode = endNode,
-                                        weekList = weekList, bgColor = color, textColor = 0xFF000000
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    } catch (e: Exception) { e.printStackTrace() }
-    return mergeCourses(courses)
-}
-
-fun parseCourseFromFile(context: Context, uri: Uri): List<Course> {
-    return try {
-        val inputStream = context.contentResolver.openInputStream(uri) ?: return emptyList()
-        val reader = BufferedReader(InputStreamReader(inputStream, "UTF-8"))
-        val content = reader.readText()
-        reader.close()
-        parseCourseFromHtml(content)
-    } catch (e: Exception) { e.printStackTrace(); emptyList() }
-}
-
-fun mergeCourses(courses: List<Course>): List<Course> {
-    var current = courses
-    var changed = true
-    while (changed) {
-        changed = false
-        val next = mutableListOf<Course>()
-        val consumed = BooleanArray(current.size)
-
-        for (i in current.indices) {
-            if (consumed[i]) continue
-            var c1 = current[i]
-
-            for (j in i + 1 until current.size) {
-                if (consumed[j]) continue
-                val c2 = current[j]
-
-                if (c1.name == c2.name && c1.room == c2.room && c1.teacher == c2.teacher && c1.dayOfWeek == c2.dayOfWeek) {
-                    val sameWeeks = c1.weekList == c2.weekList
-                    val overlappingOrAdjacentNodes = c1.startNode <= c2.endNode + 1 && c2.startNode <= c1.endNode + 1
-                    val sameNodes = c1.startNode == c2.startNode && c1.endNode == c2.endNode
-                    var overlappingOrAdjacentWeeks = false
-                    if (sameNodes) {
-                        for (w1 in c1.weekList) {
-                            for (w2 in c2.weekList) {
-                                if (w1 - w2 in -1..1) {
-                                    overlappingOrAdjacentWeeks = true
-                                    break
-                                }
-                            }
-                            if (overlappingOrAdjacentWeeks) break
-                        }
-                    }
-
-                    if ((sameWeeks && overlappingOrAdjacentNodes) || (sameNodes && overlappingOrAdjacentWeeks)) {
-                        c1 = c1.copy(
-                            startNode = minOf(c1.startNode, c2.startNode),
-                            endNode = maxOf(c1.endNode, c2.endNode),
-                            weekList = (c1.weekList + c2.weekList).distinct().sorted()
-                        )
-                        consumed[j] = true
-                        changed = true
-                    }
-                }
-            }
-            next.add(c1)
-        }
-        current = next
-    }
-    return current
-}
-
-fun parseWeeks(weeksStr: String): List<Int> {
-    val weeks = mutableListOf<Int>()
-    val parts = weeksStr.split(",")
-    for (p in parts) {
-        if (p.contains("-")) {
-            val bounds = p.split("-")
-            val start = bounds[0].toIntOrNull()
-            val end = bounds[1].toIntOrNull()
-            if (start != null && end != null) weeks.addAll(start..end)
-        } else {
-            p.toIntOrNull()?.let { weeks.add(it) }
-        }
-    }
-    return weeks.distinct().sorted()
-}
-
-fun parseNodes(nodesStr: String): Pair<Int, Int> {
-    val parseSingle = { s: String ->
-        val str = s.trim().replace("中午", "午").replace("傍晚", "傍")
-        when {
-            str == "1" -> 1; str == "2" -> 2; str == "3" -> 3; str == "4" -> 4
-            str.contains("午1") -> 5; str.contains("午2") -> 6; str.contains("午3") -> 7
-            str == "5" -> 8; str == "6" -> 9; str == "7" -> 10; str == "8" -> 11
-            str.contains("傍1") -> 12; str == "9" -> 13; str == "10" -> 14; str == "11" -> 15; str == "12" -> 16
-            else -> 1
-        }
-    }
-    if (nodesStr.contains("-")) {
-        val parts = nodesStr.split("-")
-        return Pair(parseSingle(parts[0]), parseSingle(parts[1]))
-    }
-    val single = parseSingle(nodesStr)
-    return Pair(single, single)
-}
-
 // 课表主界面
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -817,11 +708,31 @@ fun TimetableScreen(
     var showSetCurrentWeekDialog by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            coroutineScope.launch {
-                val importedCourses = withContext(Dispatchers.IO) { parseCourseFromFile(context, uri) }
-                if (importedCourses.isNotEmpty()) onImportCourses(importedCourses) else Toast.makeText(context, "导入失败：未能识别到课程信息", Toast.LENGTH_SHORT).show()
+    val htmlImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                coroutineScope.launch {
+                    val importedCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromFile(context, uri) }
+                    if (importedCourses.isNotEmpty()) onImportCourses(importedCourses) else Toast.makeText(context, "导入失败：未能识别到课程信息", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val shareImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                coroutineScope.launch {
+                    val text = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    }
+                    val imported = text?.let { decodeShareData(it) }
+                    if (imported != null && imported.isNotEmpty()) {
+                        onImportCourses(imported)
+                    } else {
+                        Toast.makeText(context, "导入失败：文件格式错误或已损坏", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
     }
@@ -831,6 +742,9 @@ fun TimetableScreen(
     val weekDays = listOf("一", "二", "三", "四", "五", "六", "日")
     val todayDayOfWeek = weekDays[today.dayOfWeek.value - 1]
     val bgBitmap = rememberBitmapFromUri(bgImageUri)
+
+    var showShareMenuDialog by remember { mutableStateOf(false) }
+    var showImportMenuDialog by remember { mutableStateOf(false) }
 
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (showBgImage && bgBitmap != null) {
@@ -900,8 +814,21 @@ fun TimetableScreen(
                         }
                         DropdownMenu(expanded = showDownloadMenu, onDismissRequest = { showDownloadMenu = false }) {
                             DropdownMenuItem(text = { Text("从教务系统导入") }, onClick = { showDownloadMenu = false; onNavigateToBrowser() })
-                            DropdownMenuItem(text = { Text("从文件中导入") }, onClick = { showDownloadMenu = false; importLauncher.launch("*/*") })
-                            DropdownMenuItem(text = { Text("分享课表给同学") }, onClick = { showDownloadMenu = false })
+                            DropdownMenuItem(text = { Text("从文件导入 (HTML、TXT、XLS)") }, onClick = {
+                                showDownloadMenu = false
+                                val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+                                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                                    type = "*/*"
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                        val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3A")
+                                        putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, uri)
+                                    }
+                                }
+                                htmlImportLauncher.launch(intent)
+                            })
+                            HorizontalDivider()
+                            DropdownMenuItem(text = { Text("分享课表给同学") }, onClick = { showDownloadMenu = false; showShareMenuDialog = true })
+                            DropdownMenuItem(text = { Text("从分享中导入课表") }, onClick = { showDownloadMenu = false; showImportMenuDialog = true })
                         }
                     }
                     IconButton(onClick = { showManagementSheet = true }) {
@@ -1062,6 +989,116 @@ fun TimetableScreen(
                 onConfirm = { newWeek -> onSetCurrentWeek(newWeek); showSetCurrentWeekDialog = false; coroutineScope.launch { pagerState.animateScrollToPage(newWeek - 1) } }
             )
         }
+
+        // 分享课表方式选择弹窗
+        if (showShareMenuDialog) {
+            AlertDialog(
+                onDismissRequest = { showShareMenuDialog = false },
+                title = { Text("分享课表", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(onClick = {
+                            val content = encodeShareData(context, activeTimetable?.courses ?: emptyList())
+                            val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("FlowCourse", content))
+                            Toast.makeText(context, "已复制加密课表到剪切板，去粘贴给好友吧！", Toast.LENGTH_SHORT).show()
+                            showShareMenuDialog = false
+                        }, modifier = Modifier.fillMaxWidth()) { Text("复制到剪切板") }
+
+                        Button(onClick = {
+                            val content = encodeShareData(context, activeTimetable?.courses ?: emptyList())
+                            val file = java.io.File(context.cacheDir, "FlowCourse分享课表.flowcourse")
+                            file.writeText(content)
+
+                            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "application/octet-stream"
+                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(android.content.Intent.createChooser(intent, "分享 .flowcourse 文件"))
+                            showShareMenuDialog = false
+                        }, modifier = Modifier.fillMaxWidth()) { Text("生成文件并发送至 APP") }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { showShareMenuDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+            )
+        }
+
+        // 导入课表方式选择弹窗
+        if (showImportMenuDialog) {
+            AlertDialog(
+                onDismissRequest = { showImportMenuDialog = false },
+                title = { Text("导入课表", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(onClick = {
+                            val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clipText = clipboardManager.primaryClip?.getItemAt(0)?.text?.toString()
+                            if (clipText != null) {
+                                val imported = decodeShareData(clipText)
+                                if (imported != null && imported.isNotEmpty()) {
+                                    onImportCourses(imported)
+                                    showImportMenuDialog = false
+                                } else {
+                                    Toast.makeText(context, "剪切板内未发现有效的课表数据", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                Toast.makeText(context, "剪切板为空", Toast.LENGTH_SHORT).show()
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) { Text("从剪切板导入") }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Button(onClick = {
+                                val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+                                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                                    type = "*/*"
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                        // 自动定位到 QQ 的接收目录
+                                        val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3AAndroid%2Fdata%2Fcom.tencent.mobileqq%2FTencent%2FQQfile_recv")
+                                        putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, uri)
+                                    }
+                                }
+                                shareImportLauncher.launch(intent)
+                                showImportMenuDialog = false
+                            }, modifier = Modifier.fillMaxWidth()) { Text("从文件中导入(QQ下载目录)") }
+
+                            Text(
+                                text = "由于系统安全原因，自动跳转路径可能被拦截，需要手动定位文件。\nQQ下载路径：内部存储/Android/data/com.tencent.mobileqq/Tencent/QQfile_recv/",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Button(onClick = {
+                                val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+                                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                                    type = "*/*"
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                        val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3A")
+                                        putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, uri)
+                                    }
+                                }
+                                shareImportLauncher.launch(intent)
+                                showImportMenuDialog = false
+                            }, modifier = Modifier.fillMaxWidth()) { Text("从文件中导入(手动选择)") }
+
+                            Text(
+                                text = "由于系统安全原因，自动跳转路径可能被拦截，需要手动定位文件。\n",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { showImportMenuDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+            )
+        }
     }
 }
 
@@ -1193,9 +1230,26 @@ fun ManagementMenuContent(
                 val isSelected = timetable.id == activeTimetableId
                 val isDragged = draggedIndex != null && currentTimetables.getOrNull(draggedIndex!!)?.id == timetable.id
                 val dragScale by animateFloatAsState(if (isDragged) 1.15f else 1f, label = "drag_scale")
+                // 抖动动画
+                val infiniteTransition = rememberInfiniteTransition(label = "jiggle")
+                val jiggleAngle by infiniteTransition.animateFloat(
+                    initialValue = -2.5f,
+                    targetValue = 2.5f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(130, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "jiggle_angle"
+                )
+                // 只有在管理模式下且没有被拖拽时才抖动，拖拽时固定不动
+                val actualRotation = if (isManageMode && !isDragged) jiggleAngle else 0f
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.then(if (isDragged) Modifier else Modifier.animateItem()).graphicsLayer { translationX = if (isDragged) dragOffset else 0f; scaleX = dragScale; scaleY = dragScale }.zIndex(if (isDragged) 1f else 0f).pointerInput(isManageMode, timetable.id) {
+                    modifier = Modifier.then(if (isDragged) Modifier else Modifier.animateItem()).graphicsLayer {
+                        translationX = if (isDragged) dragOffset else 0f
+                        scaleX = dragScale; scaleY = dragScale
+                        rotationZ = actualRotation // 抖动实现
+                    }.zIndex(if (isDragged) 1f else 0f).pointerInput(isManageMode, timetable.id) {
                         if (!isManageMode)
                             return@pointerInput
                         detectDragGesturesAfterLongPress(

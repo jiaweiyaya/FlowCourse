@@ -77,7 +77,10 @@ import android.util.Base64
 import androidx.compose.ui.platform.LocalUriHandler
 import java.net.URL
 import java.net.HttpURLConnection
+import androidx.glance.appwidget.updateAll
+import androidx.glance.appwidget.updateAll
 
+import com.jiaweiya.flowcourse.widget.TimetableWidget
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
 
 // 数据结构定义
@@ -161,6 +164,16 @@ fun decodeShareData(data: String): List<Course>? {
     } catch (e: Exception) {
         e.printStackTrace()
         null
+    }
+}
+
+fun updateAppWidget(context: Context) {
+    kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) {
+        try {
+            TimetableWidget().updateAll(context)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }
 
@@ -383,6 +396,9 @@ class MainActivity : ComponentActivity() {
 
                 // 使用 Unit，使得应用每次打开时只执行一次检查
                 LaunchedEffect(Unit) {
+
+                    updateAppWidget(context)
+
                     if (isFirstLaunch) {
                         // 如果是首次打开，先去介绍页
                         navController.navigate("About")
@@ -416,6 +432,7 @@ class MainActivity : ComponentActivity() {
                         .putInt("active_id", activeTimetableId)
                         .putString("time_profiles_data", gson.toJson(timeProfiles))
                         .apply()
+                    updateAppWidget(context)
                 }
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->

@@ -74,4 +74,5 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("androidx.compose.material:material-icons-extended:1.7.0")
     implementation("com.tencent.tbs:tbssdk:44286")
+    implementation("androidx.glance:glance-appwidget:1.1.0")
 }

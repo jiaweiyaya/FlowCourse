@@ -161,25 +161,18 @@ class TimetableWidget : GlanceAppWidget() {
                 ) {
                     Text(
                         text = startTime,
-                        style = TextStyle(
-                            fontSize = 9.sp,
-                            color = ColorProvider(Color(course.textColor))
-                        )
+                        style = TextStyle(fontSize = 10.sp, color = ColorProvider(Color(course.textColor)), textAlign = TextAlign.Center),
+                        modifier = GlanceModifier.fillMaxWidth()
                     )
                     Text(
                         text = "${course.startNode}-${course.endNode}",
-                        style = TextStyle(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = ColorProvider(Color(course.textColor))
-                        )
+                        style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 15.sp, color = ColorProvider(Color(course.textColor)), textAlign = TextAlign.Center),
+                        modifier = GlanceModifier.fillMaxWidth()
                     )
                     Text(
                         text = endTime,
-                        style = TextStyle(
-                            fontSize = 9.sp,
-                            color = ColorProvider(Color(course.textColor))
-                        )
+                        style = TextStyle(fontSize = 10.sp, color = ColorProvider(Color(course.textColor)), textAlign = TextAlign.Center),
+                        modifier = GlanceModifier.fillMaxWidth()
                     )
                 }
 
@@ -191,7 +184,7 @@ class TimetableWidget : GlanceAppWidget() {
                         text = course.name,
                         style = TextStyle(
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
+                            fontSize = 16.sp,
                             color = ColorProvider(Color(course.textColor))
                         ),
                         maxLines = 2
@@ -200,7 +193,7 @@ class TimetableWidget : GlanceAppWidget() {
                     Text(
                         text = course.room,
                         style = TextStyle(
-                            fontSize = 10.sp,
+                            fontSize = 12.sp,
                             color = ColorProvider(Color(course.textColor))
                         ),
                         maxLines = 2
@@ -214,7 +207,7 @@ class TimetableWidget : GlanceAppWidget() {
                 Text(
                     text = verticalTeacher,
                     style = TextStyle(
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         color = ColorProvider(Color(course.textColor)),
                         textAlign = TextAlign.Center
                     ),

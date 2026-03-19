@@ -36,6 +36,7 @@ import com.jiaweiya.flowcourse.TimetableData
 import com.jiaweiya.flowcourse.nodeTimes
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import androidx.glance.LocalSize
 
 class TimetableWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TimetableWidget()
@@ -73,6 +74,11 @@ class TimetableWidget : GlanceAppWidget() {
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
+
+        // 获取当前小组件的实时尺寸
+        val size = LocalSize.current
+        // 判断当前小组件的宽度是否大于高度的 2 倍
+        val isWideWidget = size.width > (size.height * 2f)
 
         Column(
             modifier = GlanceModifier
@@ -116,9 +122,41 @@ class TimetableWidget : GlanceAppWidget() {
                     )
                 }
             } else {
-                LazyColumn(modifier = GlanceModifier.fillMaxWidth()) {
-                    items(courses) { course ->
-                        CourseItemWidget(context, course, profileNodes)
+                if (isWideWidget) {
+                    // 宽比例：将课程按 2 个一组进行分割，变成双列显示
+                    val chunkedCourses = courses.chunked(2)
+
+                    LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+                        items(chunkedCourses) { rowList ->
+                            Row(modifier = GlanceModifier.fillMaxWidth()) {
+                                // 左边第一列
+                                Box(modifier = GlanceModifier.defaultWeight()) {
+                                    // 复用原来的横向卡片
+                                    HorizontalCourseCard(context, rowList[0], profileNodes)
+                                }
+
+                                // 检查这一行有没有第二节课
+                                if (rowList.size > 1) {
+                                    // 两列之间的水平间距
+                                    Spacer(modifier = GlanceModifier.width(8.dp))
+                                    // 右边第二列
+                                    Box(modifier = GlanceModifier.defaultWeight()) {
+                                        HorizontalCourseCard(context, rowList[1], profileNodes)
+                                    }
+                                } else {
+                                    // 如果这一行只有一节课，右边放一个空的占位，保证左边的卡片宽度只有一半，不会突然变长
+                                    Spacer(modifier = GlanceModifier.width(8.dp))
+                                    Box(modifier = GlanceModifier.defaultWeight()) {}
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // 窄比例：原来的单列纵向滑动容器
+                    LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+                        items(courses) { course ->
+                            HorizontalCourseCard(context, course, profileNodes)
+                        }
                     }
                 }
             }
@@ -126,7 +164,11 @@ class TimetableWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun CourseItemWidget(context: Context, course: Course, profileNodes: List<NodeTime>) {
+    private fun HorizontalCourseCard(
+        context: Context,
+        course: Course,
+        profileNodes: List<NodeTime>
+    ) {
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
@@ -161,17 +203,30 @@ class TimetableWidget : GlanceAppWidget() {
                 ) {
                     Text(
                         text = startTime,
-                        style = TextStyle(fontSize = 10.sp, color = ColorProvider(Color(course.textColor)), textAlign = TextAlign.Center),
+                        style = TextStyle(
+                            fontSize = 10.sp,
+                            color = ColorProvider(Color(course.textColor)),
+                            textAlign = TextAlign.Center
+                        ),
                         modifier = GlanceModifier.fillMaxWidth()
                     )
                     Text(
                         text = "${course.startNode}-${course.endNode}",
-                        style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 15.sp, color = ColorProvider(Color(course.textColor)), textAlign = TextAlign.Center),
+                        style = TextStyle(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = ColorProvider(Color(course.textColor)),
+                            textAlign = TextAlign.Center
+                        ),
                         modifier = GlanceModifier.fillMaxWidth()
                     )
                     Text(
                         text = endTime,
-                        style = TextStyle(fontSize = 10.sp, color = ColorProvider(Color(course.textColor)), textAlign = TextAlign.Center),
+                        style = TextStyle(
+                            fontSize = 10.sp,
+                            color = ColorProvider(Color(course.textColor)),
+                            textAlign = TextAlign.Center
+                        ),
                         modifier = GlanceModifier.fillMaxWidth()
                     )
                 }

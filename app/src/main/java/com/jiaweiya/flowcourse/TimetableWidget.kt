@@ -53,13 +53,17 @@ class TimetableWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val sharedPrefs = context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
+        val showCourseBorder = sharedPrefs.getBoolean("show_course_border", true)
+        val courseBorderColor = sharedPrefs.getLong("course_border_color", 0xFF9E77ED)
+
         val todayCourses = getTodayCourses(context)
         val dateInfo = getTodayDateInfo(context)
         val profileNodes = getActiveProfileNodes(context)
 
         provideContent {
             GlanceTheme {
-                WidgetContent(context, dateInfo, todayCourses, profileNodes)
+                WidgetContent(context, dateInfo, todayCourses, profileNodes, showCourseBorder, courseBorderColor)
             }
         }
     }
@@ -69,7 +73,9 @@ class TimetableWidget : GlanceAppWidget() {
         context: Context,
         dateInfo: String,
         courses: List<Course>,
-        profileNodes: List<NodeTime>
+        profileNodes: List<NodeTime>,
+        showCourseBorder: Boolean,
+        courseBorderColor: Long
     ) {
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -132,7 +138,7 @@ class TimetableWidget : GlanceAppWidget() {
                                 // 左边第一列
                                 Box(modifier = GlanceModifier.defaultWeight()) {
                                     // 复用原来的横向卡片
-                                    HorizontalCourseCard(context, rowList[0], profileNodes)
+                                    HorizontalCourseCard(context, rowList[0], profileNodes, showCourseBorder, courseBorderColor)
                                 }
 
                                 // 检查这一行有没有第二节课
@@ -141,7 +147,7 @@ class TimetableWidget : GlanceAppWidget() {
                                     Spacer(modifier = GlanceModifier.width(8.dp))
                                     // 右边第二列
                                     Box(modifier = GlanceModifier.defaultWeight()) {
-                                        HorizontalCourseCard(context, rowList[1], profileNodes)
+                                        HorizontalCourseCard(context, rowList[1], profileNodes, showCourseBorder, courseBorderColor)
                                     }
                                 } else {
                                     // 如果这一行只有一节课，右边放一个空的占位，保证左边的卡片宽度只有一半，不会突然变长
@@ -155,7 +161,7 @@ class TimetableWidget : GlanceAppWidget() {
                     // 窄比例：原来的单列纵向滑动容器
                     LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
                         items(courses) { course ->
-                            HorizontalCourseCard(context, course, profileNodes)
+                            HorizontalCourseCard(context, course, profileNodes, showCourseBorder, courseBorderColor)
                         }
                     }
                 }
@@ -167,7 +173,9 @@ class TimetableWidget : GlanceAppWidget() {
     private fun HorizontalCourseCard(
         context: Context,
         course: Course,
-        profileNodes: List<NodeTime>
+        profileNodes: List<NodeTime>,
+        showCourseBorder: Boolean,  // 新增参数
+        courseBorderColor: Long     // 新增参数
     ) {
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -181,93 +189,108 @@ class TimetableWidget : GlanceAppWidget() {
                 .fillMaxWidth()
                 .padding(bottom = 5.dp) // 卡片间的垂直间距
         ) {
-            Row(
+            // 新增一层 Box，如果开启了边框，就把它当作背景并应用 1dp 的 padding
+            Box(
                 modifier = GlanceModifier
                     .fillMaxWidth()
-                    .background(ColorProvider(Color(course.bgColor)))
-                    .cornerRadius(10.dp)
-                    .padding(
-                        start = 10.dp,
-                        end = 10.dp,
-                        top = 6.dp,
-                        bottom = 6.dp
+                    .cornerRadius(10.dp) // 外圈圆角
+                    .background(
+                        if (showCourseBorder) ColorProvider(Color(courseBorderColor))
+                        else ColorProvider(Color.Transparent)
                     )
-                    .clickable(actionStartActivity(openAppIntent)),
-
-                verticalAlignment = Alignment.CenterVertically
+                    // 内缩 1dp 就是边框的厚度
+                    .padding(if (showCourseBorder) 1.dp else 0.dp)
+                    // 点击事件放到最外层，保证整个边框区域都能点到
+                    .clickable(actionStartActivity(openAppIntent))
             ) {
-                // 左侧：时间区
-                Column(
-                    modifier = GlanceModifier.width(46.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                // 原来的 Row，负责实际的颜色背景和布局
+                Row(
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .background(ColorProvider(Color(course.bgColor)))
+                        // 内部圆角稍微小一点，避免边缘出现锯齿缝隙
+                        .cornerRadius(if (showCourseBorder) 9.dp else 10.dp)
+                        .padding(
+                            start = 10.dp,
+                            end = 10.dp,
+                            top = 6.dp,
+                            bottom = 6.dp
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 左侧：时间区
+                    Column(
+                        modifier = GlanceModifier.width(46.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = startTime,
+                            style = TextStyle(
+                                fontSize = 10.sp,
+                                color = ColorProvider(Color(course.textColor)),
+                                textAlign = TextAlign.Center
+                            ),
+                            modifier = GlanceModifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = "${course.startNode}-${course.endNode}",
+                            style = TextStyle(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = ColorProvider(Color(course.textColor)),
+                                textAlign = TextAlign.Center
+                            ),
+                            modifier = GlanceModifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = endTime,
+                            style = TextStyle(
+                                fontSize = 10.sp,
+                                color = ColorProvider(Color(course.textColor)),
+                                textAlign = TextAlign.Center
+                            ),
+                            modifier = GlanceModifier.fillMaxWidth()
+                        )
+                    }
+
+                    Spacer(modifier = GlanceModifier.width(8.dp))
+
+                    // 中间：课程与地点
+                    Column(modifier = GlanceModifier.defaultWeight()) {
+                        Text(
+                            text = course.name,
+                            style = TextStyle(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = ColorProvider(Color(course.textColor))
+                            ),
+                            maxLines = 2
+                        )
+                        Spacer(modifier = GlanceModifier.height(2.dp))
+                        Text(
+                            text = course.room,
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                color = ColorProvider(Color(course.textColor))
+                            ),
+                            maxLines = 2
+                        )
+                    }
+
+                    Spacer(modifier = GlanceModifier.width(4.dp))
+
+                    // 右侧：垂直教师名字
+                    val verticalTeacher = course.teacher.map { it.toString() }.joinToString("\n")
                     Text(
-                        text = startTime,
+                        text = verticalTeacher,
                         style = TextStyle(
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             color = ColorProvider(Color(course.textColor)),
                             textAlign = TextAlign.Center
                         ),
-                        modifier = GlanceModifier.fillMaxWidth()
-                    )
-                    Text(
-                        text = "${course.startNode}-${course.endNode}",
-                        style = TextStyle(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = ColorProvider(Color(course.textColor)),
-                            textAlign = TextAlign.Center
-                        ),
-                        modifier = GlanceModifier.fillMaxWidth()
-                    )
-                    Text(
-                        text = endTime,
-                        style = TextStyle(
-                            fontSize = 10.sp,
-                            color = ColorProvider(Color(course.textColor)),
-                            textAlign = TextAlign.Center
-                        ),
-                        modifier = GlanceModifier.fillMaxWidth()
+                        modifier = GlanceModifier.padding(start = 2.dp)
                     )
                 }
-
-                Spacer(modifier = GlanceModifier.width(8.dp))
-
-                // 中间：课程与地点
-                Column(modifier = GlanceModifier.defaultWeight()) {
-                    Text(
-                        text = course.name,
-                        style = TextStyle(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = ColorProvider(Color(course.textColor))
-                        ),
-                        maxLines = 2
-                    )
-                    Spacer(modifier = GlanceModifier.height(2.dp))
-                    Text(
-                        text = course.room,
-                        style = TextStyle(
-                            fontSize = 12.sp,
-                            color = ColorProvider(Color(course.textColor))
-                        ),
-                        maxLines = 2
-                    )
-                }
-
-                Spacer(modifier = GlanceModifier.width(4.dp))
-
-                // 右侧：垂直教师名字
-                val verticalTeacher = course.teacher.map { it.toString() }.joinToString("\n")
-                Text(
-                    text = verticalTeacher,
-                    style = TextStyle(
-                        fontSize = 11.sp,
-                        color = ColorProvider(Color(course.textColor)),
-                        textAlign = TextAlign.Center
-                    ),
-                    modifier = GlanceModifier.padding(start = 2.dp)
-                )
             }
         }
     }

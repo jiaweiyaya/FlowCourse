@@ -61,6 +61,9 @@ import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.compose.material.icons.filled.Brightness3
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.WbSunny
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -97,7 +100,7 @@ fun changeAppIcon(context: Context, targetAlias: String) {
     Toast.makeText(context, "图标更换成功，可能需要几秒钟在桌面上生效", Toast.LENGTH_SHORT).show()
 }
 
-// 保存二维码图片到手机相册
+// 保存二维码到手机相册
 fun saveQrCodeToGallery(context: Context, coroutineScope: CoroutineScope) {
     coroutineScope.launch {
         val success = withContext(Dispatchers.IO) {
@@ -128,11 +131,46 @@ fun saveQrCodeToGallery(context: Context, coroutineScope: CoroutineScope) {
     }
 }
 
+// 同时保存多张赞助二维码到相册
+fun saveImagesToGallery(context: Context, coroutineScope: CoroutineScope, imageResIds: List<Int>) {
+    coroutineScope.launch {
+        var successCount = 0
+        withContext(Dispatchers.IO) {
+            imageResIds.forEach { resId ->
+                try {
+                    val bitmap = BitmapFactory.decodeResource(context.resources, resId)
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, "FlowCourse_Sponsor_${System.currentTimeMillis()}_$resId.png")
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/FlowCourse")
+                        }
+                    }
+                    val resolver = context.contentResolver
+                    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                    if (uri != null) {
+                        resolver.openOutputStream(uri)?.use { outputStream ->
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+                        }
+                        successCount++
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
+            }
+        }
+        if (successCount == imageResIds.size) {
+            Toast.makeText(context, "图片已全部保存到相册", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "保存完成，成功: $successCount, 失败: ${imageResIds.size - successCount}", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     parserId: Int,
+    showWatermark: Boolean,
+    onShowWatermarkChange: (Boolean) -> Unit,
     onParserIdChange: (Int) -> Unit,
     themeMode: Int,
     onThemeChange: (Int) -> Unit,
@@ -161,7 +199,11 @@ fun SettingsScreen(
     onManualCheckUpdate: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToAgreement: () -> Unit,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    showCourseBorder: Boolean,
+    onShowCourseBorderChange: (Boolean) -> Unit,
+    courseBorderColor: Long,
+    onCourseBorderColorChange: (Long) -> Unit,
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -170,6 +212,7 @@ fun SettingsScreen(
     var showFeedbackChannelDialog by remember { mutableStateOf(false) } // 控制渠道选择弹窗
     var showQQGroupDialog by remember { mutableStateOf(false) }         // 控制QQ二维码弹窗
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showSponsorDialog by remember { mutableStateOf(false) }
 
     var showParserDialog by remember { mutableStateOf(false) }
     val parsersList = listOf(Pair(1, "重庆文理学院"))
@@ -186,10 +229,12 @@ fun SettingsScreen(
     var tempHeight by remember(savedDesktopHeight) { mutableStateOf(savedDesktopHeight.toString()) }
 
     var showColorDialog by remember { mutableStateOf(false) }
+    var showBorderColorDialog by remember { mutableStateOf(false) } // 控制框线颜色弹窗
     val colorOptions = listOf(
-        0xFFFF0000, 0xFFE91E63, 0xFF9C27B0, 0xFF673AB7, 0xFF3F51B5,
-        0xFF2196F3, 0xFF03A9F4, 0xFF00BCD4, 0xFF009688, 0xFF4CAF50,
-        0xFF8BC34A, 0xFFCDDC39, 0xFFFFEB3B, 0xFFFFC107, 0xFFFF9800, 0xFFFF5722
+        0xFF9E77ED, 0xFFFF0000, 0xFFE91E63, 0xFF9C27B0,
+        0xFF673AB7, 0xFF3F51B5, 0xFF03A9F4, 0xFF00BCD4,
+        0xFF009688, 0xFF4CAF50, 0xFF8BC34A, 0xFFCDDC39,
+        0xFFFFEB3B, 0xFFFFC107, 0xFFFF9800, 0xFFFF5722
     ).map { it.toLong() }
 
     // 图片选择器
@@ -395,6 +440,25 @@ fun SettingsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Text("显示水印", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                Switch(
+                    checked = showWatermark,
+                    onCheckedChange = { checked ->
+                        onShowWatermarkChange(checked)
+                        // 当关闭水印时，弹出赞助弹窗
+                        if (!checked) {
+                            showSponsorDialog = true
+                        }
+                    },
+                    modifier = Modifier.scale(1.0f)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text("高亮当天与时间线", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("高亮", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 4.dp))
@@ -414,14 +478,63 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(Color(conflictColor))
-                            .clickable { showColorDialog = true }
-                    )
+                            .size(24.dp)
+                            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { showColorDialog = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(3.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color(conflictColor))
+                        )
+                    }
                     Spacer(modifier = Modifier.width(12.dp))
                     Switch(checked = showConflictWarning, onCheckedChange = onShowConflictWarningChange, modifier = Modifier.scale(1.0f))
                 }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("显示课程卡片框线", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { showBorderColorDialog = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(3.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color(courseBorderColor))
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(checked = showCourseBorder, onCheckedChange = onShowCourseBorderChange, modifier = Modifier.scale(1.0f))
+                }
+            }
+
+            if (showBorderColorDialog) {
+                ColorSelectionDialog(
+                    currentColor = courseBorderColor,
+                    colorOptions = colorOptions,
+                    onDismiss = { showBorderColorDialog = false },
+                    onSave = {
+                        onCourseBorderColorChange(it)
+                        showBorderColorDialog = false
+                    }
+                )
             }
 
             Row(
@@ -557,31 +670,21 @@ fun SettingsScreen(
     }
 
     if (showThemeDialog) {
-        AlertDialog(
-            onDismissRequest = { showThemeDialog = false },
-            title = { Text("选择主题", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    themeOptions.forEachIndexed { index, title ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onThemeChange(index)
-                                    showThemeDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(selected = themeMode == index, onClick = { onThemeChange(index); showThemeDialog = false })
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(title, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
+        ThemeSelectionDialog(
+            currentTheme = themeMode,
+            onDismiss = { showThemeDialog = false },
+            onSave = { newTheme ->
+                onThemeChange(newTheme)
+                // 判断并联动课程边框开关
+                val isSystemDark = android.content.res.Configuration.UI_MODE_NIGHT_YES == (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+
+                if (newTheme == 2 || (newTheme == 0 && isSystemDark)) {
+                    onShowCourseBorderChange(false) // 切换为深色时关闭框线
+                } else if (newTheme == 1 || (newTheme == 0 && !isSystemDark)) {
+                    onShowCourseBorderChange(true)  // 切换为浅色时打开框线
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showThemeDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.primary) }
+
+                showThemeDialog = false
             }
         )
     }
@@ -611,7 +714,7 @@ fun SettingsScreen(
                     }
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // 点击后触发之前的 showFeedbackChannelDialog
+                    // 点击后触发 showFeedbackChannelDialog
                     Text(
                         text = "找不到你的学校的解析脚本？点我联系Jiaweiya",
                         fontSize = 12.sp,
@@ -634,40 +737,17 @@ fun SettingsScreen(
     }
 
     if (showColorDialog) {
-        AlertDialog(
-            onDismissRequest = { showColorDialog = false },
-            title = { Text("选择角标颜色", fontWeight = FontWeight.Bold) },
-            text = {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.padding(8.dp)
-                ) {
-                    items(colorOptions) { colorVal ->
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color(colorVal))
-                                .clickable {
-                                    onConflictColorChange(colorVal)
-                                    showColorDialog = false
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (conflictColor == colorVal) {
-                                Icon(Icons.Default.Check, contentDescription = "选中", tint = Color.White)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showColorDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.primary) }
+        ColorSelectionDialog(
+            currentColor = conflictColor,
+            colorOptions = colorOptions,
+            onDismiss = { showColorDialog = false },
+            onSave = {
+                onConflictColorChange(it)
+                showColorDialog = false
             }
         )
     }
+
     // 反馈渠道选择弹窗
     if (showFeedbackChannelDialog) {
         AlertDialog(
@@ -738,6 +818,47 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { saveQrCodeToGallery(context, coroutineScope) }) {
+                    Text("保存到相册", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        )
+    }
+
+    // 新增：求赞助弹窗
+    if (showSponsorDialog) {
+        AlertDialog(
+            onDismissRequest = { showSponsorDialog = false },
+            title = { Text("求一个赞助支持", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                ) {
+                    Text("作者用爱发电不易，感谢老板的打赏！", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 12.dp))
+                    Image(
+                        painter = painterResource(id = R.drawable.wechatcode),
+                        contentDescription = "微信赞助",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Image(
+                        painter = painterResource(id = R.drawable.alpaycode),
+                        contentDescription = "支付宝赞助",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSponsorDialog = false }) {
+                    Text("关闭", color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    saveImagesToGallery(context, coroutineScope, listOf(R.drawable.wechatcode, R.drawable.alpaycode))
+                }) {
                     Text("保存到相册", color = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -855,8 +976,8 @@ fun IconSelectionDialog(currentId: Int, onDismiss: () -> Unit, onSave: (AppIconD
                             .align(Alignment.TopStart)
                             .offset { IntOffset(animLeft.roundToInt(), animTop.roundToInt()) }
                             .size(with(density) { animWidth.toDp() }, with(density) { animHeight.toDp() })
-                            .background(Color(0xFFE48AFF).copy(alpha = 0.15f), RoundedCornerShape(16.dp))
-                            .border(2.dp, Color(0xFFE48AFF), RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
+                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
                     )
                 }
 
@@ -910,7 +1031,7 @@ fun IconSelectionDialog(currentId: Int, onDismiss: () -> Unit, onSave: (AppIconD
             val hasChanged = selectedId != currentId
 
             val animatedContainerColor by animateColorAsState(
-                targetValue = if (hasChanged) Color(0xFFE48AFF) else MaterialTheme.colorScheme.surfaceVariant,
+                targetValue = if (hasChanged) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 animationSpec = tween(300), label = "btnBgAnim"
             )
             val animatedTextColor by animateColorAsState(
@@ -963,7 +1084,7 @@ fun IconSelectionDialog(currentId: Int, onDismiss: () -> Unit, onSave: (AppIconD
                         }
                     },
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE48AFF))
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text("确认重启")
                 }
@@ -975,4 +1096,246 @@ fun IconSelectionDialog(currentId: Int, onDismiss: () -> Unit, onSave: (AppIconD
             }
         )
     }
+}
+
+@Composable
+fun ColorSelectionDialog(
+    currentColor: Long,
+    colorOptions: List<Long>,
+    onDismiss: () -> Unit,
+    onSave: (Long) -> Unit
+) {
+    var selectedColor by remember { mutableLongStateOf(currentColor) }
+    val itemBoundsInRoot = remember { mutableStateMapOf<Long, Rect>() }
+    var boxBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
+    val density = LocalDensity.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择颜色", fontWeight = FontWeight.Bold) },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .onGloballyPositioned { coords -> boxBoundsInRoot = coords.boundsInRoot() }
+            ) {
+                // 背景高亮选框动画
+                val targetItemRoot = itemBoundsInRoot[selectedColor] ?: Rect.Zero
+                val targetRelative = if (targetItemRoot != Rect.Zero && boxBoundsInRoot != Rect.Zero) {
+                    targetItemRoot.translate(-boxBoundsInRoot.left, -boxBoundsInRoot.top)
+                } else Rect.Zero
+
+                if (targetRelative != Rect.Zero) {
+                    val padding = 8.dp
+                    val paddingPx = with(density) { padding.toPx() }
+                    val animSpec = spring<Float>(dampingRatio = 0.65f, stiffness = 400f)
+
+                    val animLeft by animateFloatAsState(targetRelative.left - paddingPx, animSpec, label = "X")
+                    val animTop by animateFloatAsState(targetRelative.top - paddingPx, animSpec, label = "Y")
+                    val animWidth by animateFloatAsState(targetRelative.width + paddingPx * 2, animSpec, label = "W")
+                    val animHeight by animateFloatAsState(targetRelative.height + paddingPx * 2, animSpec, label = "H")
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset { IntOffset(animLeft.roundToInt(), animTop.roundToInt()) }
+                            .size(with(density) { animWidth.toDp() }, with(density) { animHeight.toDp() })
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
+                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
+                    )
+                }
+
+                // 色块渲染 (一行4个)
+                Column(
+                    modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    val chunkedColors = colorOptions.chunked(4)
+                    chunkedColors.forEach { rowItems ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                            rowItems.forEach { colorVal ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .onGloballyPositioned { coords -> itemBoundsInRoot[colorVal] = coords.boundsInRoot() }
+                                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                                            selectedColor = colorVal
+                                        }
+                                        .clip(RoundedCornerShape(12.dp)) // 圆角正方形
+                                        .background(Color(colorVal)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (currentColor == colorVal) {
+                                        Icon(Icons.Default.Check, contentDescription = "选中", tint = Color.White)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val hasChanged = selectedColor != currentColor
+
+            // 使用滑块的默认颜色：MaterialTheme.colorScheme.primary
+            val animatedContainerColor by animateColorAsState(
+                targetValue = if (hasChanged) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                animationSpec = tween(300), label = "btnBgAnim"
+            )
+            val animatedTextColor by animateColorAsState(
+                targetValue = if (hasChanged) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                animationSpec = tween(300), label = "btnTxtAnim"
+            )
+
+            Button(
+                onClick = { onSave(selectedColor) },
+                enabled = hasChanged,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = animatedContainerColor,
+                    contentColor = animatedTextColor,
+                    disabledContainerColor = animatedContainerColor,
+                    disabledContentColor = animatedTextColor
+                )
+            ) {
+                Text(text = "保存并应用")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
+}
+
+@Composable
+fun ThemeSelectionDialog(
+    currentTheme: Int,
+    onDismiss: () -> Unit,
+    onSave: (Int) -> Unit
+) {
+    var selectedTheme by remember { mutableIntStateOf(currentTheme) }
+    val itemBoundsInRoot = remember { mutableStateMapOf<Int, Rect>() }
+    var boxBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
+    val density = LocalDensity.current
+
+    val themeOptions = listOf(
+        Triple("跟随系统", Icons.Default.BrightnessAuto, 0),
+        Triple("浅色模式", Icons.Default.WbSunny, 1),
+        Triple("深色模式", Icons.Default.Brightness3, 2)
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择主题", fontWeight = FontWeight.Bold) },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .onGloballyPositioned { coords -> boxBoundsInRoot = coords.boundsInRoot() }
+            ) {
+                // 背景高亮选框动画
+                val targetItemRoot = itemBoundsInRoot[selectedTheme] ?: Rect.Zero
+                val targetRelative = if (targetItemRoot != Rect.Zero && boxBoundsInRoot != Rect.Zero) {
+                    targetItemRoot.translate(-boxBoundsInRoot.left, -boxBoundsInRoot.top)
+                } else Rect.Zero
+
+                if (targetRelative != Rect.Zero) {
+                    val padding = 6.dp
+                    val paddingPx = with(density) { padding.toPx() }
+                    val animSpec = spring<Float>(dampingRatio = 0.65f, stiffness = 400f)
+
+                    val animLeft by animateFloatAsState(targetRelative.left - paddingPx, animSpec, label = "X")
+                    val animTop by animateFloatAsState(targetRelative.top - paddingPx, animSpec, label = "Y")
+                    val animWidth by animateFloatAsState(targetRelative.width + paddingPx * 2, animSpec, label = "W")
+                    val animHeight by animateFloatAsState(targetRelative.height + paddingPx * 2, animSpec, label = "H")
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset { IntOffset(animLeft.roundToInt(), animTop.roundToInt()) }
+                            .size(with(density) { animWidth.toDp() }, with(density) { animHeight.toDp() })
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
+                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
+                    )
+                }
+
+                // 主题选项渲染
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    themeOptions.forEach { (title, icon, index) ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .onGloballyPositioned { coords -> itemBoundsInRoot[index] = coords.boundsInRoot() }
+                                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                                    selectedTheme = index
+                                }
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // 将图标和文字横向居中排列
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = title,
+                                    // 图标的颜色跟随选中状态变化
+                                    tint = if (selectedTheme == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = title,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    // 文字的颜色跟随选中状态变化
+                                    color = if (selectedTheme == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val hasChanged = selectedTheme != currentTheme
+
+            // 按钮颜色联动动画
+            val animatedContainerColor by animateColorAsState(
+                targetValue = if (hasChanged) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                animationSpec = tween(300), label = "btnBgAnim"
+            )
+            val animatedTextColor by animateColorAsState(
+                targetValue = if (hasChanged) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                animationSpec = tween(300), label = "btnTxtAnim"
+            )
+
+            Button(
+                onClick = { onSave(selectedTheme) },
+                enabled = hasChanged,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = animatedContainerColor,
+                    contentColor = animatedTextColor,
+                    disabledContainerColor = animatedContainerColor,
+                    disabledContentColor = animatedTextColor
+                )
+            ) {
+                Text(text = "保存并应用")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
 }

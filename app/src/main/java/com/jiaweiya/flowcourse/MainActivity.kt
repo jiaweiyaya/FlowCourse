@@ -74,6 +74,7 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 import android.util.Base64
+import androidx.compose.foundation.border
 import androidx.compose.ui.platform.LocalUriHandler
 import java.net.URL
 import java.net.HttpURLConnection
@@ -81,6 +82,7 @@ import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.graphics.luminance
 
 import com.jiaweiya.flowcourse.widget.TimetableWidget
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
@@ -325,8 +327,12 @@ class MainActivity : ComponentActivity() {
             var parserId by remember { mutableIntStateOf(sharedPrefs.getInt("parser_id", 1)) }  // 记录当前选择的课表解析脚本 ID
 
             var autoCheckUpdate by remember { mutableStateOf(sharedPrefs.getBoolean("auto_check_update", true)) }
+            var showWatermark by remember { mutableStateOf(sharedPrefs.getBoolean("show_watermark", true)) } // 控制水印显示
             var updateInfo by remember { mutableStateOf<GithubRelease?>(null) }
             val currentAppVersion = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0" } catch (e: Exception) { "1.0.0" }
+
+            var showCourseBorder by remember { mutableStateOf(sharedPrefs.getBoolean("show_course_border", true)) }
+            var courseBorderColor by remember { mutableLongStateOf(sharedPrefs.getLong("course_border_color", 0xFF9E77ED)) }
 
             // 用来存储用户选择要展示的冲突课程的 ID 集合
             var preferredConflictIds by remember { mutableStateOf(sharedPrefs.getStringSet("preferred_conflict_ids", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()) }
@@ -356,7 +362,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            LaunchedEffect(themeMode, defaultBrowserUrl, desktopWidth, desktopHeight, showBgImage, bgImageUri, bgOpacity, highlightToday, showTimeLine, showConflictWarning, conflictColor, preferredConflictIds, realTimeSlider) {
+            LaunchedEffect(themeMode, defaultBrowserUrl, desktopWidth, desktopHeight, showBgImage,
+                bgImageUri, bgOpacity, highlightToday, showTimeLine, showConflictWarning, conflictColor,
+                preferredConflictIds, realTimeSlider, autoCheckUpdate, showWatermark,
+                showCourseBorder, courseBorderColor
+            ) {
                 sharedPrefs.edit()
                     .putInt("theme_mode", themeMode)
                     .putBoolean("show_bg_image", showBgImage)
@@ -373,6 +383,9 @@ class MainActivity : ComponentActivity() {
                     .putBoolean("real_time_slider", realTimeSlider)
                     .putInt("parser_id", parserId)
                     .putBoolean("auto_check_update", autoCheckUpdate)
+                    .putBoolean("show_watermark", showWatermark)
+                    .putBoolean("show_course_border", showCourseBorder)
+                    .putLong("course_border_color", courseBorderColor)
                     .apply()
             }
 
@@ -462,6 +475,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 TimetableScreen(
                                     preferredConflictIds = preferredConflictIds,
+                                    showWatermark = showWatermark,
                                     onPreferredConflictChange = { preferredConflictIds = it },
                                     timetables = timetables,
                                     activeTimetableId = activeTimetableId,
@@ -498,7 +512,9 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToCourseList = { id -> navController.navigate("CourseList/$id") },
                                     onNavigateToBrowser = { navController.navigate("Browser") },
                                     onNavigateToAbout = { navController.navigate("About") },
-                                    onImportCourses = { courses -> pendingImportCourses = courses }
+                                    onImportCourses = { courses -> pendingImportCourses = courses },
+                                    showCourseBorder = showCourseBorder,
+                                    courseBorderColor = courseBorderColor
                                 )
                             }
 
@@ -509,6 +525,8 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 SettingsScreen(
                                     parserId = parserId,
+                                    showWatermark = showWatermark,
+                                    onShowWatermarkChange = { showWatermark = it },
                                     onParserIdChange = { parserId = it },
                                     themeMode = themeMode, onThemeChange = { themeMode = it },
                                     autoCheckUpdate = autoCheckUpdate,
@@ -541,7 +559,11 @@ class MainActivity : ComponentActivity() {
                                     onRealTimeSliderChange = { realTimeSlider = it },
                                     onNavigateToAbout = { navController.navigate("About") },
                                     onNavigateToAgreement = { navController.navigate("Agreement?readOnly=true") },
-                                    onBackClick = { navController.popBackStack() }
+                                    onBackClick = { navController.popBackStack() },
+                                    showCourseBorder = showCourseBorder,
+                                    onShowCourseBorderChange = { showCourseBorder = it },
+                                    courseBorderColor = courseBorderColor,
+                                    onCourseBorderColorChange = { courseBorderColor = it }
                                 )
                             }
 
@@ -757,6 +779,17 @@ class MainActivity : ComponentActivity() {
 
                         // 检测到解析完成的课表数据时弹出导入方式选择对话框
                         if (pendingImportCourses != null) {
+                            val existingCourses = activeTimetable?.courses ?: emptyList()
+                            // 预处理导入的课程，如果有同名课程，继承原来的背景色和文字颜色
+                            val processedImportCourses = pendingImportCourses!!.map { imported ->
+                                val matched = existingCourses.find { it.name == imported.name }
+                                if (matched != null) {
+                                    imported.copy(bgColor = matched.bgColor, textColor = matched.textColor)
+                                } else {
+                                    imported
+                                }
+                            }
+
                             AlertDialog(
                                 onDismissRequest = { pendingImportCourses = null },
                                 title = { Text("成功解析 ${pendingImportCourses!!.size} 门课程", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
@@ -765,8 +798,8 @@ class MainActivity : ComponentActivity() {
                                         Text("请选择您要将这些课程导入到哪里：", fontSize = 14.sp)
                                         Button(onClick = {
                                             val maxId = timetables.flatMap { it.courses }.maxOfOrNull { it.id } ?: 0
-                                            val maxWeek = pendingImportCourses!!.flatMap { it.weekList }.maxOrNull() ?: activeTimetable?.totalWeeks ?: 20
-                                            val newCourses = pendingImportCourses!!.mapIndexed { index, c -> c.copy(id = maxId + index + 1) }
+                                            val maxWeek = processedImportCourses.flatMap { it.weekList }.maxOrNull() ?: activeTimetable?.totalWeeks ?: 20
+                                            val newCourses = processedImportCourses.mapIndexed { index, c -> c.copy(id = maxId + index + 1) } // 使用处理过的课程
                                             timetables = timetables.map { if (it.id == activeTimetableId) it.copy(courses = newCourses, totalWeeks = maxOf(it.totalWeeks, maxWeek)) else it }
                                             pendingImportCourses = null
                                             Toast.makeText(context, "已替换当前课表", Toast.LENGTH_SHORT).show()
@@ -774,8 +807,8 @@ class MainActivity : ComponentActivity() {
 
                                         Button(onClick = {
                                             val maxId = timetables.flatMap { it.courses }.maxOfOrNull { it.id } ?: 0
-                                            val maxWeek = pendingImportCourses!!.flatMap { it.weekList }.maxOrNull() ?: activeTimetable?.totalWeeks ?: 20
-                                            val newCourses = pendingImportCourses!!.mapIndexed { index, c -> c.copy(id = maxId + index + 1) }
+                                            val maxWeek = processedImportCourses.flatMap { it.weekList }.maxOrNull() ?: activeTimetable?.totalWeeks ?: 20
+                                            val newCourses = processedImportCourses.mapIndexed { index, c -> c.copy(id = maxId + index + 1) } // 使用处理过的课程
                                             timetables = timetables.map { if (it.id == activeTimetableId) it.copy(courses = it.courses + newCourses, totalWeeks = maxOf(it.totalWeeks, maxWeek)) else it }
                                             pendingImportCourses = null
                                             Toast.makeText(context, "已追加到当前课表", Toast.LENGTH_SHORT).show()
@@ -783,7 +816,8 @@ class MainActivity : ComponentActivity() {
 
                                         Button(onClick = {
                                             val maxId = timetables.flatMap { it.courses }.maxOfOrNull { it.id } ?: 0
-                                            val maxWeek = pendingImportCourses!!.flatMap { it.weekList }.maxOrNull() ?: 20
+                                            val maxWeek = processedImportCourses.flatMap { it.weekList }.maxOrNull() ?: 20
+                                            // 新建课表就不需要继承颜色了，使用原始 pendingImportCourses
                                             val newCourses = pendingImportCourses!!.mapIndexed { index, c -> c.copy(id = maxId + index + 1) }
                                             val newId = (timetables.maxOfOrNull { it.id } ?: 0) + 1
                                             timetables = timetables + TimetableData(newId, "导入的新课表", newCourses, totalWeeks = maxWeek)
@@ -809,6 +843,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun TimetableScreen(
     preferredConflictIds: Set<Int>,
+    showWatermark: Boolean,
+    showCourseBorder: Boolean,
+    courseBorderColor: Long,
     onPreferredConflictChange: (Set<Int>) -> Unit,
     timetables: List<TimetableData>, activeTimetableId: Int, timeProfiles: List<TimeProfile>,
     currentActualWeek: Int, showBgImage: Boolean, bgImageUri: String?, bgOpacity: Float,
@@ -888,21 +925,26 @@ fun TimetableScreen(
                 alpha = bgOpacity)
         }
 
-        Column(modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 32.dp, end = 32.dp), horizontalAlignment = Alignment.Start) {
-            Text(
-                text = "Flow\nCourse",
-                fontSize = 32.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.Gray.copy(alpha = 0.6f),
-                textAlign = TextAlign.Start,
-                lineHeight = 30.sp
-            )
-            Text(
-                text = "By:Jiaweiya",
-                fontSize = 19.sp,
-                color = Color.Gray.copy(alpha = 0.4f),
-                textAlign = TextAlign.Start
-            )
+        if (showWatermark) {
+            Column(
+                modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 32.dp, end = 32.dp),
+                horizontalAlignment = Alignment.Start
+            ) {
+                Text(
+                    text = "Flow\nCourse",
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.Gray.copy(alpha = 0.6f),
+                    textAlign = TextAlign.Start,
+                    lineHeight = 30.sp
+                )
+                Text(
+                    text = "By:Jiaweiya",
+                    fontSize = 19.sp,
+                    color = Color.Gray.copy(alpha = 0.4f),
+                    textAlign = TextAlign.Start
+                )
+            }
         }
 
         Column(modifier = Modifier.fillMaxSize()) {
@@ -983,6 +1025,8 @@ fun TimetableScreen(
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
                 WeekTimetableGrid(
                     conflictColor = conflictColor,
+                    showCourseBorder = showCourseBorder,
+                    courseBorderColor = courseBorderColor,
                     currentWeek = page + 1,
 
                     allCourses = courses,
@@ -1499,6 +1543,8 @@ fun WeekTimetableGrid(
     preferredConflictIds: Set<Int>,
     onCourseClick: (List<Course>) -> Unit,
     conflictColor: Long,
+    showCourseBorder: Boolean,
+    courseBorderColor: Long,
     currentWeek: Int, allCourses: List<Course>, profileNodes: List<NodeTime>, termStartStr: String?,
     highlightToday: Boolean, showTimeLine: Boolean, showConflictWarning: Boolean,
 ) {
@@ -1633,6 +1679,8 @@ fun WeekTimetableGrid(
                                             height = height,
                                             isConflicted = isConflicted && showConflictWarning,
                                             conflictColor = conflictColor,
+                                            showCourseBorder = showCourseBorder,
+                                            courseBorderColor = courseBorderColor,
                                             onClick = { _ -> onCourseClick(cluster) } // 点击时传出整个冲突组
                                         )
                                     }
@@ -1689,9 +1737,12 @@ fun WeekTimetableGrid(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun CourseBlock(course: Course, topOffset: Float, height: Float, isConflicted: Boolean, onClick: (Course) -> Unit, conflictColor: Long,) {
+fun CourseBlock(
+    course: Course, topOffset: Float, height: Float, isConflicted: Boolean,
+    onClick: (Course) -> Unit, conflictColor: Long,
+    showCourseBorder: Boolean, courseBorderColor: Long
+) {
     val density = LocalDensity.current
-    // 用一个 boolean 状态记录是否按下
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(targetValue = if (isPressed) 0.85f else 1f, animationSpec = spring(dampingRatio = 0.4f, stiffness = Spring.StiffnessMediumLow), label = "bounce")
 
@@ -1706,69 +1757,59 @@ fun CourseBlock(course: Course, topOffset: Float, height: Float, isConflicted: B
             .height(height.dp)
             .padding(2.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
+            .then(
+                if (showCourseBorder) Modifier.border(1.dp, Color(courseBorderColor), RoundedCornerShape(8.dp))
+                else Modifier
+            )
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(course.bgColor))
             .pointerInput(key1 = course) {
                 detectTapGestures(
-                    onPress = {
-                        isPressed = true
-                        tryAwaitRelease()
-                        isPressed = false
-                    },
-                    onTap = {
-                        onClick(course)
-                    }
+                    onPress = { isPressed = true; tryAwaitRelease(); isPressed = false },
+                    onTap = { onClick(course) }
                 )
             }
-            .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
-        // 冲突检测小三角标（使用Canvas绘制右上角直角等腰三角形）
-        if (isConflicted) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val triangleSize = 12.dp.toPx()
-                val path = Path().apply {
-                    moveTo(size.width - triangleSize, 0f)
-                    lineTo(size.width, 0f)
-                    lineTo(size.width, triangleSize)
-                    close()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(0.dp)  // 控制色块内缩距离
+                .clip(RoundedCornerShape( 8.dp))
+                .background(Color(course.bgColor))
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                Text(
+                    text = course.name,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(course.textColor),
+                    lineHeight = 12.sp,
+                    maxLines = maxNameLines,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    if (course.room.isNotEmpty()) {
+                        Text(text = "@${course.room}", fontSize = 9.sp, color = Color(course.textColor).copy(alpha = 0.7f), lineHeight = 10.sp, maxLines = Int.MAX_VALUE, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxSize().padding(bottom = totalTeacherSpace))
+                    }
+                    if (course.teacher.isNotEmpty()) {
+                        Text(text = course.teacher, fontSize = 9.sp, color = Color(course.textColor).copy(alpha = 0.7f), lineHeight = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
+                    }
                 }
-                drawPath(path = path, color = Color(conflictColor).copy(alpha = 0.85f))
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            Text(
-                text = course.name,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(course.textColor),
-                lineHeight = 12.sp,
-                maxLines = maxNameLines,
-                overflow = TextOverflow.Ellipsis
-            )
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                if (course.room.isNotEmpty()) {
-                    Text(
-                        text = "@${course.room}",
-                        fontSize = 9.sp,
-                        color = Color(course.textColor).copy(alpha = 0.7f),
-                        lineHeight = 10.sp,
-                        maxLines = Int.MAX_VALUE,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxSize().padding(bottom = totalTeacherSpace)
-                    )
+        // 冲突检测小三角标
+        if (isConflicted) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val triangleSize = 14.dp.toPx()
+                val cornerOffset = 3.dp.toPx()  // 向中心内移的偏移量
+                val path = Path().apply {
+                    moveTo(size.width - triangleSize - cornerOffset, cornerOffset)
+                    lineTo(size.width - cornerOffset, cornerOffset)
+                    lineTo(size.width - cornerOffset, triangleSize + cornerOffset)
+                    close()
                 }
-                if (course.teacher.isNotEmpty()) {
-                    Text(
-                        text = course.teacher,
-                        fontSize = 9.sp,
-                        color = Color(course.textColor).copy(alpha = 0.7f),
-                        lineHeight = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp)
-                    )
-                }
+                drawPath(path = path, color = Color(conflictColor).copy(alpha = 0.85f))
             }
         }
     }

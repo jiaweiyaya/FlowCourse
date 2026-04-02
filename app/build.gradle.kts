@@ -14,8 +14,8 @@ android {
         applicationId = "com.jiaweiya.flowcourse"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 6
+        versionName = "1.1.3"
 
         ndk {
             abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
@@ -52,6 +52,23 @@ android {
     buildFeatures {
         compose = true
     }
+
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            val outputImpl = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
+
+            if (variant.buildType.name == "release") {
+                val appName = "FlowCourse"
+                val versionName = variant.versionName ?: "1.0.0"
+                // 获取 ABI 架构名称
+                val abiName = outputImpl.filters.find { it.filterType == com.android.build.OutputFile.ABI }?.identifier
+                val abiStr = abiName ?: "universal"
+
+                outputImpl.outputFileName = "${appName}-${abiStr}-Ver${versionName}.apk"
+            }
+        }
+    }
 }
 
 dependencies {
@@ -74,4 +91,5 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("androidx.compose.material:material-icons-extended:1.7.0")
     implementation("com.tencent.tbs:tbssdk:44286")
+    implementation("androidx.glance:glance-appwidget:1.1.0")
 }

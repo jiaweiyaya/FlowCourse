@@ -77,7 +77,12 @@ import android.util.Base64
 import androidx.compose.ui.platform.LocalUriHandler
 import java.net.URL
 import java.net.HttpURLConnection
+import androidx.glance.appwidget.updateAll
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
+import com.jiaweiya.flowcourse.widget.TimetableWidget
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
 
 // 数据结构定义
@@ -161,6 +166,16 @@ fun decodeShareData(data: String): List<Course>? {
     } catch (e: Exception) {
         e.printStackTrace()
         null
+    }
+}
+
+fun updateAppWidget(context: Context) {
+    kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) {
+        try {
+            TimetableWidget().updateAll(context)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }
 
@@ -326,6 +341,21 @@ class MainActivity : ComponentActivity() {
             var isFirstLaunch by remember { mutableStateOf(sharedPrefs.getBoolean("is_first_launch", true)) }
             var hasAgreed by remember { mutableStateOf(sharedPrefs.getBoolean("has_agreed", false)) }
 
+            val lifecycleOwner = LocalLifecycleOwner.current
+            val context = LocalContext.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    // 当应用暂停或停止（退回桌面、切换多任务、关闭应用）时触发刷新
+                    if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                        updateAppWidget(context)
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
+
             LaunchedEffect(themeMode, defaultBrowserUrl, desktopWidth, desktopHeight, showBgImage, bgImageUri, bgOpacity, highlightToday, showTimeLine, showConflictWarning, conflictColor, preferredConflictIds, realTimeSlider) {
                 sharedPrefs.edit()
                     .putInt("theme_mode", themeMode)
@@ -383,6 +413,9 @@ class MainActivity : ComponentActivity() {
 
                 // 使用 Unit，使得应用每次打开时只执行一次检查
                 LaunchedEffect(Unit) {
+
+                    updateAppWidget(context)
+
                     if (isFirstLaunch) {
                         // 如果是首次打开，先去介绍页
                         navController.navigate("About")
@@ -416,6 +449,7 @@ class MainActivity : ComponentActivity() {
                         .putInt("active_id", activeTimetableId)
                         .putString("time_profiles_data", gson.toJson(timeProfiles))
                         .apply()
+                    updateAppWidget(context)
                 }
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->

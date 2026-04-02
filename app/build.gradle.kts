@@ -52,6 +52,23 @@ android {
     buildFeatures {
         compose = true
     }
+
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            val outputImpl = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
+
+            if (variant.buildType.name == "release") {
+                val appName = "FlowCourse"
+                val versionName = variant.versionName ?: "1.0.0"
+                // 获取 ABI 架构名称
+                val abiName = outputImpl.filters.find { it.filterType == com.android.build.OutputFile.ABI }?.identifier
+                val abiStr = abiName ?: "universal"
+
+                outputImpl.outputFileName = "${appName}-${abiStr}-Ver${versionName}.apk"
+            }
+        }
+    }
 }
 
 dependencies {

@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -145,14 +146,46 @@ fun AddCourseScreen(
             EditableCourseRow(icon = "📖", placeholder = "课程名称", value = courseName, onValueChange = { courseName = it })
 
             Row(
-                modifier = Modifier.fillMaxWidth().clickable { showColorDialog = true }.padding(horizontal = 16.dp, vertical = 16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showColorDialog = true }
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(text = "🖍️", fontSize = 20.sp)
                 Spacer(modifier = Modifier.width(20.dp))
-                Text(text = "点此更改颜色", fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                Text(text = "更改课程颜色", fontSize = 16.sp)
                 Spacer(modifier = Modifier.weight(1f))
-                Box(modifier = Modifier.size(24.dp).clip(CircleShape).background(selectedBgColor).border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(6.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(3.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(selectedBgColor),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "A",
+                            color = selectedTextColor,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            textAlign = TextAlign.Center,
+                            style = TextStyle(
+                                platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                    includeFontPadding = false
+                                )
+                            ),
+                            modifier = Modifier.offset(y = 0.dp)
+                        )
+                    }
+                }
             }
 
             EditableCourseRow(icon = "🚩", placeholder = "学分 (可不填)", value = credits, onValueChange = { credits = it })

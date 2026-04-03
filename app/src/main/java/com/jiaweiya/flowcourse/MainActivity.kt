@@ -292,6 +292,7 @@ class MainActivity : ComponentActivity() {
 
             var autoUsername by remember { mutableStateOf(sharedPrefs.getString("auto_username", "") ?: "") }
             var autoPassword by remember { mutableStateOf(sharedPrefs.getString("auto_password", "") ?: "") }
+            var isAutoLoginEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_login", false)) }
 
             // 用来存储用户选择要展示的冲突课程的 ID 集合
             var preferredConflictIds by remember { mutableStateOf(sharedPrefs.getStringSet("preferred_conflict_ids", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()) }
@@ -324,7 +325,8 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(themeMode, defaultBrowserUrl, desktopWidth, desktopHeight, showBgImage,
                 bgImageUri, bgOpacity, highlightToday, showTimeLine, showConflictWarning, conflictColor,
                 preferredConflictIds, realTimeSlider, autoCheckUpdate, showWatermark,
-                showCourseBorder, courseBorderColor
+                showCourseBorder, courseBorderColor,
+                autoUsername, autoPassword, isAutoLoginEnabled
             ) {
                 sharedPrefs.edit()
                     .putInt("theme_mode", themeMode)
@@ -334,6 +336,7 @@ class MainActivity : ComponentActivity() {
                     .putString("default_url", defaultBrowserUrl)
                     .putString("auto_username", autoUsername)
                     .putString("auto_password", autoPassword)
+                    .putBoolean("auto_login", isAutoLoginEnabled)
                     .putInt("desktop_width", desktopWidth)
                     .putInt("desktop_height", desktopHeight)
                     .putBoolean("highlight_today", highlightToday)
@@ -512,14 +515,15 @@ class MainActivity : ComponentActivity() {
                                     savedBrowserUrl = defaultBrowserUrl,
                                     savedDesktopWidth = desktopWidth,
                                     savedDesktopHeight = desktopHeight,
-                                    onBrowserSettingsSave = { url, w, h, user, pass ->
+                                    onBrowserSettingsSave = { url, w, h, user, pass, autoLogin ->
                                         defaultBrowserUrl = url
                                         desktopWidth = w
                                         desktopHeight = h
                                         autoUsername = user
                                         autoPassword = pass
+                                        isAutoLoginEnabled = autoLogin
                                     },
-                                    savedUsername = autoUsername, savedPassword = autoPassword,
+                                    savedUsername = autoUsername, savedPassword = autoPassword, savedAutoLogin = isAutoLoginEnabled,
                                     highlightToday = highlightToday, onHighlightTodayChange = { highlightToday = it },
                                     showTimeLine = showTimeLine, onShowTimeLineChange = { showTimeLine = it },
                                     showConflictWarning = showConflictWarning, onShowConflictWarningChange = { showConflictWarning = it },
@@ -569,7 +573,6 @@ class MainActivity : ComponentActivity() {
                                 })
                             }
 
-                            // 找到原来的 route = "Agreement" ，替换成支持参数的形式
                             composable(
                                 route = "Agreement?readOnly={readOnly}",
                                 arguments = listOf(navArgument("readOnly") {
@@ -701,7 +704,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 BrowserScreen(
                                     defaultUrl = defaultBrowserUrl, desktopWidth = desktopWidth, desktopHeight = desktopHeight,
-                                    autoUsername = autoUsername, autoPassword = autoPassword,
+                                    autoUsername = autoUsername, autoPassword = autoPassword, autoLogin = isAutoLoginEnabled,
                                     onBackClick = { navController.popBackStack() },
                                     onImportCourses = { importedCourses ->
                                         // 使用协程强制回到主线程操作 UI
@@ -1059,7 +1062,7 @@ fun TimetableScreen(
             },
             dismissButton = {
                 TextButton(onClick = {
-                    // 调用已在 SettingsScreen 中定义过的顶级相册保存函数
+                    // 调用已在 SettingsScreen 中定义过的相册保存函数
                     saveImagesToGallery(context, coroutineScope, listOf(R.drawable.wechatcode, R.drawable.alpaycode))
                 }) { Text("保存到相册", color = MaterialTheme.colorScheme.primary) }
             }
@@ -1251,7 +1254,6 @@ fun ManagementMenuContent(
         )
     }
 
-    // 去掉 remember 括号里的 currentWeek，防止它在拖动时强制干扰手指
     var sliderValue by remember { mutableFloatStateOf(currentWeek.toFloat()) }
     var isDragging by remember { mutableStateOf(false) } // 记录当前是否正在用手指拖拽
 
@@ -1466,7 +1468,6 @@ fun CourseDetailContent(course: Course, profileNodes: List<NodeTime>, onEditClic
 
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)) {
 
-        // 标题和编辑按钮同行显示
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

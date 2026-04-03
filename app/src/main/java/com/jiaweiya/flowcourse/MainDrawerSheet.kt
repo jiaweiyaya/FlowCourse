@@ -69,7 +69,6 @@ fun MainDrawerSheet(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // 把只有侧边栏管理界面才会用到的状态转移到这里
     var isManageMode by remember { mutableStateOf(false) }
     var timetableToDelete by remember { mutableStateOf<Int?>(null) }
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
@@ -325,7 +324,7 @@ fun MainDrawerSheet(
         }
     }
 
-    // 删除课表的弹窗也迁移到这里，保持状态内聚
+    // 删除课表的弹窗
     if (timetableToDelete != null) {
         val deleteName = timetables.find { it.id == timetableToDelete }?.name ?: ""
         AlertDialog(

@@ -34,7 +34,7 @@ import androidx.compose.ui.zIndex
 import java.time.LocalDate
 import java.time.LocalTime
 
-// 课表绘制相关的常量，顺便也移到这里
+// 课表绘制相关常量
 val timeSlotHeight = 65.dp
 val sideBarWidth = 35.dp
 

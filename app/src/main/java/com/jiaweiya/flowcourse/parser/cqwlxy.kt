@@ -161,8 +161,7 @@ object CqwlxyParser {
         return Pair(single, single)
     }
 
-    fun getAutoFillScript(url: String, username: String, password: String): String? {
-        // 根据截图特征，判断当前是否为重庆文理学院的 WebVPN 或 统一身份认证登录页
+    fun getAutoFillScript(url: String, username: String, password: String, autoLogin: Boolean): String? {
         val isTargetLoginPage = url.contains("myvpn.cqwu.edu.cn") && url.contains("authserver/login")
 
         if (isTargetLoginPage) {
@@ -177,19 +176,29 @@ object CqwlxyParser {
                         userField.value = un;
                         passField.value = pw;
                         
-                        // 触发 input 和 change 事件，防止现代前端框架(Vue/React)检测不到值变动导致登录按钮灰色
                         var eventInput = new Event('input', { bubbles: true });
                         var eventChange = new Event('change', { bubbles: true });
                         userField.dispatchEvent(eventInput);
                         userField.dispatchEvent(eventChange);
                         passField.dispatchEvent(eventInput);
                         passField.dispatchEvent(eventChange);
+                        
+                        // 判断是否自动登录
+                        if ($autoLogin) {
+                            setTimeout(function() {
+                                // 模拟按下回车键
+                                var enterEvent = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13 });
+                                passField.dispatchEvent(enterEvent);
+                                
+                                // 以防回车无效，顺便尝试点击常见的登录按钮
+                                var loginBtn = document.getElementById('login_submit') || document.querySelector('.login_btn') || document.querySelector('button[type="submit"]');
+                                if (loginBtn) loginBtn.click();
+                            }, 300); // 延迟300毫秒等密码真正响应到页面上
+                        }
                     }
                 })();
             """.trimIndent()
         }
-
-        // 如果不是目标页面，返回 null，浏览器不会执行任何注入
         return null
     }
 }

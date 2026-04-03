@@ -65,6 +65,7 @@ fun BrowserScreen(
     desktopHeight: Int,
     autoUsername: String,
     autoPassword: String,
+    autoLogin: Boolean,
     onBackClick: () -> Unit,
     onImportCourses: (List<Course>) -> Unit
 ) {
@@ -200,7 +201,7 @@ fun BrowserScreen(
                                     }
 
                                     if (htmlContent.contains("星期一")) {
-// ✅ 修改后的代码：调用从 HTML 解析的方法（parseCourseFromHtml）
+                                        // 调用从 HTML 解析的方法（parseCourseFromHtml）
                                         val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(htmlContent) }
                                         if (newCourses.isNotEmpty()) {
                                             onImportCourses(newCourses)
@@ -231,7 +232,7 @@ fun BrowserScreen(
                     WebView.setWebContentsDebuggingEnabled(true)
                     WebView(ctx).apply {
                         setupWebViewSettings(this, isDesktopMode)
-                        setupClients(this, logger, desktopWidth, autoUsername, autoPassword, { isDesktopMode }, { url -> inputText = url })
+                        setupClients(this, logger, desktopWidth, autoUsername, autoPassword, autoLogin, { isDesktopMode }, { url -> inputText = url })
                         webViewRef = this
                         loadUrl(defaultUrl)
                     }
@@ -296,6 +297,7 @@ private fun setupClients(
     desktopWidth: Int,
     autoUsername: String,
     autoPassword: String,
+    autoLogin: Boolean,
     isDesktopProvider: () -> Boolean,
     onUrlChanged: (String) -> Unit
 ) {
@@ -322,7 +324,7 @@ private fun setupClients(
         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
             super.onReceivedError(view, request, error)
             if (request?.isForMainFrame == true) {
-                logger("❌[主框架错误] ${error?.description}")
+                logger("❌ [主框架错误] ${error?.description}")
             }
         }
 
@@ -330,7 +332,7 @@ private fun setupClients(
             super.onReceivedHttpError(view, request, errorResponse)
             val urlStr = request?.url?.toString() ?: ""
             if (!urlStr.contains("campusphere.cn")) {
-                // logger("🔴[HTTP错误] ${errorResponse?.statusCode} -> $urlStr")
+                 logger("🔴 [HTTP错误] ${errorResponse?.statusCode} -> $urlStr")
             }
         }
 
@@ -348,12 +350,10 @@ private fun setupClients(
                 view?.evaluateJavascript(js, null)
             }
 
-            // 2. 修改后：由解析器脚本控制自动填充位置
+            // 由解析器脚本控制自动填充位置
             if (autoUsername.isNotEmpty() && autoPassword.isNotEmpty() && url != null) {
-                // 向 CqwlxyParser 询问当前 URL 是否需要填充脚本
-                val fillJs = CqwlxyParser.getAutoFillScript(url, autoUsername, autoPassword)
+                val fillJs = CqwlxyParser.getAutoFillScript(url, autoUsername, autoPassword, autoLogin)
 
-                // 如果解析器返回了脚本（说明匹配上了登录页规则），才执行注入
                 if (fillJs != null) {
                     view?.evaluateJavascript(fillJs, null)
                     logger("🚀 [自动填充] 匹配到目标登录页，已自动填入账号密码")

@@ -83,6 +83,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.ui.draw.blur
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.lazy.grid.items
 
 import com.jiaweiya.flowcourse.widget.TimetableWidget
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
@@ -870,18 +878,33 @@ fun TimetableScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var showCourseDetailSheet by remember { mutableStateOf(false) }
-    var selectedCourseForDetail by remember { mutableStateOf<Course?>(null) } // 用于显示单门课详情
-    var selectedConflictGroup by remember { mutableStateOf<List<Course>?>(null) } // 用于显示冲突选择框
-    var showManagementSheet by remember { mutableStateOf(false) }
-    var showDownloadMenu by remember { mutableStateOf(false) }
+    var selectedCourseForDetail by remember { mutableStateOf<Course?>(null) }
+    var selectedConflictGroup by remember { mutableStateOf<List<Course>?>(null) }
     var showSetCurrentWeekDialog by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    var showWeekSliderSheet by remember { mutableStateOf(false) }
+    var showSponsorDialog by remember { mutableStateOf(false) }
+
+    var isManageMode by remember { mutableStateOf(false) }
+    var timetableToDelete by remember { mutableStateOf<Int?>(null) }
+    var draggedIndex by remember { mutableStateOf<Int?>(null) }
+    var dragOffset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) } // 改为Offset支持上下左右拖拽
+
+    val currentAppVersion = remember { try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } catch (e: Exception) { "1.0.0" } }
+    var localUpdateInfo by remember { mutableStateOf<com.jiaweiya.flowcourse.GithubRelease?>(null) }
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    BackHandler(enabled = drawerState.isOpen) {
+        coroutineScope.launch { drawerState.close() }
+    }
 
     val htmlImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             result.data?.data?.let { uri ->
                 coroutineScope.launch {
-                    val importedCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromFile(context, uri) }
+                    val importedCourses = withContext(Dispatchers.IO) { com.jiaweiya.flowcourse.parser.CqwlxyParser.parseCourseFromFile(context, uri) }
                     if (importedCourses.isNotEmpty()) onImportCourses(importedCourses) else Toast.makeText(context, "导入失败：未能识别到课程信息", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -892,15 +915,9 @@ fun TimetableScreen(
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             result.data?.data?.let { uri ->
                 coroutineScope.launch {
-                    val text = withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                    }
+                    val text = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } }
                     val imported = text?.let { decodeShareData(it) }
-                    if (imported != null && imported.isNotEmpty()) {
-                        onImportCourses(imported)
-                    } else {
-                        Toast.makeText(context, "导入失败：文件格式错误或已损坏", Toast.LENGTH_SHORT).show()
-                    }
+                    if (imported != null && imported.isNotEmpty()) { onImportCourses(imported) } else { Toast.makeText(context, "导入失败：文件格式错误或已损坏", Toast.LENGTH_SHORT).show() }
                 }
             }
         }
@@ -915,367 +932,542 @@ fun TimetableScreen(
     var showShareMenuDialog by remember { mutableStateOf(false) }
     var showImportMenuDialog by remember { mutableStateOf(false) }
 
-    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        if (showBgImage && bgBitmap != null) {
-            Image(
-                bitmap = bgBitmap,
-                contentDescription = "背景图片",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                alpha = bgOpacity)
-        }
+    val blurRadius by animateDpAsState(targetValue = if (drawerState.targetValue == DrawerValue.Open) 16.dp else 0.dp, label = "blur")
 
-        if (showWatermark) {
-            Column(
-                modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 32.dp, end = 32.dp),
-                horizontalAlignment = Alignment.Start
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                modifier = Modifier.width(320.dp),
+                drawerContainerColor = MaterialTheme.colorScheme.surface,
+                windowInsets = WindowInsets(0.dp)
             ) {
-                Text(
-                    text = "Flow\nCourse",
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.Gray.copy(alpha = 0.6f),
-                    textAlign = TextAlign.Start,
-                    lineHeight = 30.sp
-                )
-                Text(
-                    text = "By:Jiaweiya",
-                    fontSize = 19.sp,
-                    color = Color.Gray.copy(alpha = 0.4f),
-                    textAlign = TextAlign.Start
-                )
-            }
-        }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(state = rememberScrollState(), enabled = draggedIndex == null)
+                        .statusBarsPadding()
+                ) {
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(
-                    horizontal = 16.dp,
-                    vertical = 6.dp
-                ),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = dateString,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    val viewedWeek = pagerState.currentPage + 1
-                    val subtitleText = if (viewedWeek == currentActualWeek) "第 $currentActualWeek 周  周$todayDayOfWeek" else "第 $currentActualWeek 周  正在浏览第 $viewedWeek 周"
-                    Text(text = subtitleText, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onNavigateToAddCourse) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "添加",
-                            modifier = Modifier.size(26.dp),
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                    Box {
-                        IconButton(onClick = { showDownloadMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = "更多",
-                                modifier = Modifier.size(26.dp),
-                                tint = MaterialTheme.colorScheme.onBackground
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable { coroutineScope.launch { drawerState.close() }; onNavigateToAbout() }.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.jiaweiya_icon),
+                                        contentDescription = "Jiaweiya",
+                                        modifier = Modifier.size(54.dp).clip(RoundedCornerShape(12.dp))
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("Jiaweiya", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column {
+                                    Text("FlowCourse", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("关于此应用", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 4.dp))
+                                }
+                            }
+
+                            Text(
+                                text = "检查更新",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(12.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        Toast.makeText(context, "正在检查更新...", Toast.LENGTH_SHORT).show()
+                                        coroutineScope.launch {
+                                            checkAppUpdate(currentAppVersion) { release, isLatest ->
+                                                if (release != null) localUpdateInfo = release
+                                                else if (isLatest) Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
+                                                else Toast.makeText(context, "检查失败，请检查网络", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                    .padding(4.dp)
                             )
                         }
-                        DropdownMenu(expanded = showDownloadMenu, onDismissRequest = { showDownloadMenu = false }) {
-                            DropdownMenuItem(text = { Text("从教务系统导入") }, onClick = { showDownloadMenu = false; onNavigateToBrowser() })
-                            DropdownMenuItem(text = { Text("从文件导入 (HTML、TXT)") }, onClick = {
-                                showDownloadMenu = false
-                                val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
-                                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
-                                    type = "*/*"
-                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                        val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3A")
-                                        putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, uri)
-                                    }
-                                }
-                                htmlImportLauncher.launch(intent)
-                            })
-                            HorizontalDivider()
-                            DropdownMenuItem(text = { Text("分享课表给同学") }, onClick = { showDownloadMenu = false; showShareMenuDialog = true })
-                            DropdownMenuItem(text = { Text("从分享中导入课表") }, onClick = { showDownloadMenu = false; showImportMenuDialog = true })
-                        }
                     }
-                    IconButton(onClick = { showManagementSheet = true }) {
-                        Icon(Icons.Default.Menu,
-                            contentDescription = "管理",
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                        DrawerMenuItem(Icons.Default.Settings, "应用设置") { coroutineScope.launch { drawerState.close() }; onNavigateToSettings() }
+                        DrawerMenuItem(Icons.Default.Favorite, "赞助我") { coroutineScope.launch { drawerState.close() }; showSponsorDialog = true }
                     }
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings,
-                            contentDescription = "设置",
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Text("所有课表设置", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 24.dp, top = 8.dp, bottom = 4.dp))
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                        DrawerMenuItem(Icons.Default.DateRange, "上课时间") { coroutineScope.launch { drawerState.close() }; onNavigateToEditTimeProfile(activeProfileId) }
                     }
-                }
-            }
 
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                WeekTimetableGrid(
-                    conflictColor = conflictColor,
-                    showCourseBorder = showCourseBorder,
-                    courseBorderColor = courseBorderColor,
-                    currentWeek = page + 1,
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                    allCourses = courses,
-                    profileNodes = activeProfileNodes,
-                    termStartStr = activeTimetable?.termStart,
-
-                    highlightToday = highlightToday, showTimeLine = showTimeLine, showConflictWarning = showConflictWarning,
-                    preferredConflictIds = preferredConflictIds,
-                    onCourseClick = { clickedGroup ->
-                        if (clickedGroup.size == 1) {
-                            // 如果没冲突，直接打开课程详情
-                            selectedCourseForDetail = clickedGroup.first()
-                            showCourseDetailSheet = true
-                        } else {
-                            // 如果有冲突，打开冲突选择菜单
-                            selectedConflictGroup = clickedGroup
-                        }
+                    Text("当前课表设置", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 24.dp, top = 8.dp, bottom = 4.dp))
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                        DrawerMenuItem(Icons.Default.Download, "导入课程") { coroutineScope.launch { drawerState.close() }; showImportMenuDialog = true }
+                        DrawerMenuItem(Icons.Default.Share, "导出课程") { coroutineScope.launch { drawerState.close() }; showShareMenuDialog = true }
                     }
-                )
-            }
-        }
-
-        // 单门课程详情弹窗
-        if (showCourseDetailSheet && selectedCourseForDetail != null) {
-            ModalBottomSheet(
-                onDismissRequest = { showCourseDetailSheet = false },
-                containerColor = MaterialTheme.colorScheme.surface) { CourseDetailContent(
-                    course = selectedCourseForDetail!!,
-                    profileNodes = activeProfileNodes,
-                    onEditClick = {
-                        showCourseDetailSheet = false
-                        onNavigateToEditCourse(selectedCourseForDetail!!.id)
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                        DrawerMenuItem(Icons.Default.Add, "添加课程") { coroutineScope.launch { drawerState.close() }; onNavigateToAddCourse() }
+                        DrawerMenuItem(Icons.Default.List, "已添课程") { coroutineScope.launch { drawerState.close() }; onNavigateToCourseList(activeTimetableId) }
                     }
-                )
-            }
-        }
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                        DrawerMenuItem(Icons.Default.Build, "课表属性") { coroutineScope.launch { drawerState.close() }; onNavigateToEditTimetable(activeTimetableId) }
+                    }
 
-        // 冲突课程选择弹窗
-        if (selectedConflictGroup != null) {
-            ModalBottomSheet(onDismissRequest = { selectedConflictGroup = null }, containerColor = MaterialTheme.colorScheme.surface) {
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)) {
-                    Text(
-                        text = "发现冲突课程，请选择要在课表上显示哪一门：",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(bottom = 16.dp)
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    val currentViewedWeek = pagerState.targetPage + 1
+                    var sliderValue by remember { mutableFloatStateOf(currentViewedWeek.toFloat()) }
+                    var isDragging by remember { mutableStateOf(false) }
+
+                    LaunchedEffect(currentViewedWeek) { if (!isDragging) sliderValue = currentViewedWeek.toFloat() }
+                    val displayWeek = sliderValue.roundToInt()
+
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("周数 (第 ${displayWeek} 周)", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("修改当前周", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { coroutineScope.launch { drawerState.close() }; showSetCurrentWeekDialog = true })
+                    }
+                    Slider(
+                        value = sliderValue,
+                        onValueChange = { newValue ->
+                            isDragging = true; sliderValue = newValue
+                            if (realTimeSlider) coroutineScope.launch { pagerState.scrollToPage(newValue.roundToInt() - 1) }
+                        },
+                        onValueChangeFinished = {
+                            isDragging = false
+                            if (!realTimeSlider) coroutineScope.launch { pagerState.animateScrollToPage(displayWeek - 1) }
+                        },
+                        valueRange = 1f..totalWeeks.toFloat(),
+                        steps = if (totalWeeks > 2) totalWeeks - 2 else 0,
+                        modifier = Modifier.padding(horizontal = 24.dp)
                     )
 
-                    selectedConflictGroup!!.forEach { course ->
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("课表", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 6.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                .clickable {
-                                    // 点击非单选按钮区域：直接查看该课程详情
-                                    selectedCourseForDetail = course
-                                    showCourseDetailSheet = true
-                                    selectedConflictGroup = null
-                                }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.animateContentSize(animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = 600f))
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Text("新建课表", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { onNewTimetable() })
+                            Spacer(modifier = Modifier.width(16.dp))
+                            AnimatedContent(
+                                targetState = isManageMode,
+                                transitionSpec = { fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200)) },
+                                label = "manage_btn_anim"
+                            ) { isManaging ->
                                 Text(
-                                    text = course.name,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "${course.room} | ${course.teacher}",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = if(isManaging) "退出管理" else "管理",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.clickable { isManageMode = !isManageMode }
                                 )
                             }
-
-                            // 判定是否是当前选中的偏好课程
-                            val isSelected = preferredConflictIds.contains(course.id) ||
-                                    (!preferredConflictIds.any { id -> selectedConflictGroup!!.map{it.id}.contains(id) } && course == selectedConflictGroup!!.first())
-
-                            // 右侧选择点
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    val newSet = preferredConflictIds.toMutableSet()
-                                    // 移除这组冲突课中其他的 ID
-                                    newSet.removeAll(selectedConflictGroup!!.map { it.id }.toSet())
-                                    // 把当前选中的这门课 ID 加入偏好
-                                    newSet.add(course.id)
-                                    onPreferredConflictChange(newSet)
-                                }
-                            )
                         }
                     }
-                    Spacer(modifier = Modifier.height(32.dp))
+
+                    val currentTimetables by rememberUpdatedState(timetables)
+                    val density = LocalDensity.current
+                    val itemWidthPx = remember(density) { with(density) { 93.dp.toPx() } }
+                    val itemHeightPx = remember(density) { with(density) { 97.dp.toPx() } }
+
+                    val rowCount = (timetables.size - 1) / 3 + 1
+                    val gridHeight = (rowCount * 95).dp + ((rowCount - 1) * 12).dp + 16.dp
+
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier.fillMaxWidth().height(gridHeight).padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        userScrollEnabled = false // 禁止网格自己滚动，跟随外部的大抽屉滚动
+                    ) {
+                        items(timetables, key = { it.id }) { timetable ->
+                            val isSelected = timetable.id == activeTimetableId
+                            val isDragged = draggedIndex != null && currentTimetables.getOrNull(draggedIndex!!)?.id == timetable.id
+                            val dragScale by animateFloatAsState(if (isDragged) 1.15f else 1f, label = "drag_scale")
+                            val infiniteTransition = rememberInfiniteTransition(label = "jiggle")
+                            val jiggleAngle by infiniteTransition.animateFloat(
+                                initialValue = -2.5f, targetValue = 2.5f,
+                                animationSpec = infiniteRepeatable(animation = tween(130, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
+                                label = "jiggle_angle"
+                            )
+                            val actualRotation = if (isManageMode && !isDragged) jiggleAngle else 0f
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.then(if (isDragged) Modifier else Modifier.animateItem()).graphicsLayer {
+                                    translationX = if (isDragged) dragOffset.x else 0f
+                                    translationY = if (isDragged) dragOffset.y else 0f
+                                    scaleX = dragScale; scaleY = dragScale
+                                    rotationZ = actualRotation
+                                }.zIndex(if (isDragged) 1f else 0f).pointerInput(isManageMode, timetable.id) {
+                                    if (!isManageMode) return@pointerInput
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = { draggedIndex = currentTimetables.indexOfFirst { it.id == timetable.id } },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            dragOffset += dragAmount
+                                            val currentIndex = draggedIndex ?: return@detectDragGesturesAfterLongPress
+
+                                            val deltaX = (dragOffset.x / itemWidthPx).roundToInt()
+                                            val deltaY = (dragOffset.y / itemHeightPx).roundToInt()
+
+                                            if (deltaX != 0 || deltaY != 0) {
+                                                val targetIndex = (currentIndex + deltaX + deltaY * 3).coerceIn(0, currentTimetables.size - 1)
+                                                if (targetIndex != currentIndex) {
+                                                    val newList = currentTimetables.toMutableList()
+                                                    val temp = newList[currentIndex]
+                                                    newList[currentIndex] = newList[targetIndex]
+                                                    newList[targetIndex] = temp
+                                                    onReorderTimetables(newList)
+                                                    draggedIndex = targetIndex
+                                                    dragOffset -= androidx.compose.ui.geometry.Offset(
+                                                        x = (targetIndex % 3 - currentIndex % 3) * itemWidthPx,
+                                                        y = (targetIndex / 3 - currentIndex / 3) * itemHeightPx
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onDragEnd = { draggedIndex = null; dragOffset = androidx.compose.ui.geometry.Offset.Zero },
+                                        onDragCancel = { draggedIndex = null; dragOffset = androidx.compose.ui.geometry.Offset.Zero }
+                                    )
+                                }
+                            ) {
+                                Box(modifier = Modifier.size(60.dp).clip(RoundedCornerShape(12.dp)).background(if (isSelected && !isManageMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant).clickable {
+                                    if (isManageMode) { coroutineScope.launch { drawerState.close() }; onNavigateToEditTimetable(timetable.id) }
+                                    else { coroutineScope.launch { drawerState.close() }; onTimetableSelect(timetable.id) }
+                                }) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        if (isManageMode) Icon(Icons.Default.Edit, contentDescription = "编辑", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        else {
+                                            if (isSelected) Icon(Icons.Default.Check, contentDescription = "选中", tint = MaterialTheme.colorScheme.onPrimary)
+                                            else Text("${timetable.courses.size}门", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                    if (isManageMode && timetables.size > 1) {
+                                        Box(
+                                            modifier = Modifier.align(Alignment.TopEnd).size(20.dp).clip(RoundedCornerShape(bottomStart = 20.dp)).background(MaterialTheme.colorScheme.error).clickable { timetableToDelete = timetable.id },
+                                            contentAlignment = Alignment.Center
+                                        ) { Icon(Icons.Default.Close, contentDescription = "删除", tint = MaterialTheme.colorScheme.onError, modifier = Modifier.size(12.dp).offset(x = 2.dp, y = (-2).dp)) }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(text = timetable.name, fontSize = 12.sp, color = if (isSelected && !isManageMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(60.dp))
                 }
             }
         }
-
-        if (showManagementSheet) {
-            ModalBottomSheet(onDismissRequest = { showManagementSheet = false }, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
-                ManagementMenuContent(
-                    timetables = timetables, activeTimetableId = activeTimetableId,
-                    onTimetableSelect = { onTimetableSelect(it); showManagementSheet = false }, onNewTimetable = onNewTimetable, onDeleteTimetable = onDeleteTimetable, onReorderTimetables = onReorderTimetables,
-                    currentWeek = pagerState.targetPage + 1,
-                    totalWeeks = totalWeeks,
-                    realTimeSlider = realTimeSlider, // 传入给菜单组件
-                    // 接收一个布尔值，决定是否使用动画
-                    onWeekChange = { newWeek, useAnimation ->
-                        coroutineScope.launch {
-                            if (useAnimation) {
-                                pagerState.animateScrollToPage(newWeek - 1)
-                            } else {
-                                pagerState.scrollToPage(newWeek - 1) // 实时拖拽时用无动画跳转，彻底告别卡顿！
-                            }
-                        }
-                    },
-                    onChangeCurrentWeekClick = { showSetCurrentWeekDialog = true },
-                    onEditTimetableClick = { id -> showManagementSheet = false; onNavigateToEditTimetable(id) },
-                    onCourseListClick = { showManagementSheet = false; onNavigateToCourseList(activeTimetableId) },
-                    onEditTimeProfileClick = { showManagementSheet = false; onNavigateToEditTimeProfile(activeProfileId) },
-                    onNavigateToAbout = { showManagementSheet = false; onNavigateToAbout() }
-                )
+    ) {
+        Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).blur(blurRadius)) {
+            if (showBgImage && bgBitmap != null) {
+                Image(bitmap = bgBitmap, contentDescription = "背景图片", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = bgOpacity)
             }
-        }
 
-        if (showSetCurrentWeekDialog) {
-            SetCurrentWeekDialog(
-                currentActualWeek = currentActualWeek,
-                totalWeeks = totalWeeks,
-                onDismiss = { showSetCurrentWeekDialog = false },
-                onConfirm = { newWeek -> onSetCurrentWeek(newWeek); showSetCurrentWeekDialog = false; coroutineScope.launch { pagerState.animateScrollToPage(newWeek - 1) } }
-            )
-        }
+            if (showWatermark) {
+                Column(modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 32.dp, end = 32.dp), horizontalAlignment = Alignment.Start) {
+                    Text(text = "Flow\nCourse", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = Color.Gray.copy(alpha = 0.6f), textAlign = TextAlign.Start, lineHeight = 30.sp)
+                    Text(text = "By:Jiaweiya", fontSize = 19.sp, color = Color.Gray.copy(alpha = 0.4f), textAlign = TextAlign.Start)
+                }
+            }
 
-        // 分享课表方式选择弹窗
-        if (showShareMenuDialog) {
-            AlertDialog(
-                onDismissRequest = { showShareMenuDialog = false },
-                title = { Text("分享课表", fontWeight = FontWeight.Bold) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = {
-                            val content = encodeShareData(context, activeTimetable?.courses ?: emptyList())
-                            val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("FlowCourse", content))
-                            Toast.makeText(context, "已复制加密课表到剪切板，去粘贴给好友吧！", Toast.LENGTH_SHORT).show()
-                            showShareMenuDialog = false
-                        }, modifier = Modifier.fillMaxWidth()) { Text("复制到剪切板") }
-
-                        Button(onClick = {
-                            val content = encodeShareData(context, activeTimetable?.courses ?: emptyList())
-                            val file = java.io.File(context.cacheDir, "FlowCourse分享课表.flowcourse")
-                            file.writeText(content)
-
-                            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                type = "application/octet-stream"
-                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(android.content.Intent.createChooser(intent, "分享 .flowcourse 文件"))
-                            showShareMenuDialog = false
-                        }, modifier = Modifier.fillMaxWidth()) { Text("生成文件并发送至 APP") }
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
+                        Icon(imageVector = Icons.Default.Menu, contentDescription = "打开菜单", modifier = Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onBackground)
                     }
-                },
-                confirmButton = {},
-                dismissButton = { TextButton(onClick = { showShareMenuDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-            )
-        }
 
-        // 导入课表方式选择弹窗
-        if (showImportMenuDialog) {
-            AlertDialog(
-                onDismissRequest = { showImportMenuDialog = false },
-                title = { Text("导入课表", fontWeight = FontWeight.Bold) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = {
-                            val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            val clipText = clipboardManager.primaryClip?.getItemAt(0)?.text?.toString()
-                            if (clipText != null) {
-                                val imported = decodeShareData(clipText)
-                                if (imported != null && imported.isNotEmpty()) {
-                                    onImportCourses(imported)
-                                    showImportMenuDialog = false
-                                } else {
-                                    Toast.makeText(context, "剪切板内未发现有效的课表数据", Toast.LENGTH_SHORT).show()
-                                }
-                            } else {
-                                Toast.makeText(context, "剪切板为空", Toast.LENGTH_SHORT).show()
-                            }
-                        }, modifier = Modifier.fillMaxWidth()) { Text("从剪切板导入") }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Button(onClick = {
-                                val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
-                                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
-                                    type = "*/*"
-                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                        // 自动定位到 QQ 的接收目录
-                                        val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3AAndroid%2Fdata%2Fcom.tencent.mobileqq%2FTencent%2FQQfile_recv")
-                                        putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, uri)
-                                    }
-                                }
-                                shareImportLauncher.launch(intent)
-                                showImportMenuDialog = false
-                            }, modifier = Modifier.fillMaxWidth()) { Text("从文件中导入(QQ下载目录)") }
-
-                            Text(
-                                text = "由于系统安全原因，自动跳转路径可能被拦截，需要手动定位文件。\nQQ下载路径：内部存储/Android/data/com.tencent.mobileqq/Tencent/QQfile_recv/",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                lineHeight = 16.sp
-                            )
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Button(onClick = {
-                                val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
-                                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
-                                    type = "*/*"
-                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                        val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3A")
-                                        putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, uri)
-                                    }
-                                }
-                                shareImportLauncher.launch(intent)
-                                showImportMenuDialog = false
-                            }, modifier = Modifier.fillMaxWidth()) { Text("从文件中导入(手动选择)") }
-
-                            Text(
-                                text = "由于系统安全原因，自动跳转路径可能被拦截，需要手动定位文件。\n",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                lineHeight = 16.sp
-                            )
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showWeekSliderSheet = true }
+                            .padding(4.dp)
+                    ) {
+                        Text(
+                            text = dateString,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        val viewedWeek = pagerState.currentPage + 1
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            val subtitleText = if (viewedWeek == currentActualWeek) "周$todayDayOfWeek" else "周$todayDayOfWeek (正在浏览第 $viewedWeek 周)"
+                            Text(text = subtitleText, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "第 $currentActualWeek 周", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                     }
-                },
-                confirmButton = {},
-                dismissButton = { TextButton(onClick = { showImportMenuDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-            )
+                }
+
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                    WeekTimetableGrid(
+                        conflictColor = conflictColor, showCourseBorder = showCourseBorder, courseBorderColor = courseBorderColor,
+                        currentWeek = page + 1, allCourses = courses, profileNodes = activeProfileNodes, termStartStr = activeTimetable?.termStart,
+                        highlightToday = highlightToday, showTimeLine = showTimeLine, showConflictWarning = showConflictWarning, preferredConflictIds = preferredConflictIds,
+                        onCourseClick = { clickedGroup ->
+                            if (clickedGroup.size == 1) {
+                                selectedCourseForDetail = clickedGroup.first()
+                                showCourseDetailSheet = true
+                            } else { selectedConflictGroup = clickedGroup }
+                        }
+                    )
+                }
+            }
         }
     }
+
+    if (showWeekSliderSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showWeekSliderSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            val currentViewedWeek = pagerState.targetPage + 1
+            var sliderValue by remember { mutableFloatStateOf(currentViewedWeek.toFloat()) }
+            var isDragging by remember { mutableStateOf(false) }
+
+            LaunchedEffect(currentViewedWeek) {
+                if (!isDragging) sliderValue = currentViewedWeek.toFloat()
+            }
+            val displayWeek = sliderValue.roundToInt()
+
+            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("周数 (第 ${displayWeek} 周)", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Text("修改当前周", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { showWeekSliderSheet = false; showSetCurrentWeekDialog = true })
+                }
+                Slider(
+                    value = sliderValue,
+                    onValueChange = { newValue ->
+                        isDragging = true
+                        sliderValue = newValue
+                        if (realTimeSlider) coroutineScope.launch { pagerState.scrollToPage(newValue.roundToInt() - 1) }
+                    },
+                    onValueChangeFinished = {
+                        isDragging = false
+                        if (!realTimeSlider) coroutineScope.launch { pagerState.animateScrollToPage(displayWeek - 1) }
+                    },
+                    valueRange = 1f..totalWeeks.toFloat(),
+                    steps = if (totalWeeks > 2) totalWeeks - 2 else 0,
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                )
+            }
+        }
+    }
+
+    if (showSponsorDialog) {
+        AlertDialog(
+            onDismissRequest = { showSponsorDialog = false },
+            title = { Text("求一个赞助支持", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                ) {
+                    Text("作者用爱发电不易，感谢老板的打赏！", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 12.dp))
+                    Image(
+                        painter = painterResource(id = R.drawable.wechatcode),
+                        contentDescription = "微信赞助",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Image(
+                        painter = painterResource(id = R.drawable.alpaycode),
+                        contentDescription = "支付宝赞助",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSponsorDialog = false }) { Text("关闭", color = MaterialTheme.colorScheme.primary) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    // 调用已在 SettingsScreen 中定义过的顶级相册保存函数
+                    saveImagesToGallery(context, coroutineScope, listOf(R.drawable.wechatcode, R.drawable.alpaycode))
+                }) { Text("保存到相册", color = MaterialTheme.colorScheme.primary) }
+            }
+        )
+    }
+
+    if (showCourseDetailSheet && selectedCourseForDetail != null) {
+        ModalBottomSheet(onDismissRequest = { showCourseDetailSheet = false }, containerColor = MaterialTheme.colorScheme.surface) {
+            CourseDetailContent(course = selectedCourseForDetail!!, profileNodes = activeProfileNodes, onEditClick = { showCourseDetailSheet = false; onNavigateToEditCourse(selectedCourseForDetail!!.id) })
+        }
+    }
+
+    if (selectedConflictGroup != null) {
+        ModalBottomSheet(onDismissRequest = { selectedConflictGroup = null }, containerColor = MaterialTheme.colorScheme.surface) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)) {
+                Text("发现冲突课程，请选择要在课表上显示哪一门：", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 16.dp))
+                selectedConflictGroup!!.forEach { course ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).clickable {
+                            selectedCourseForDetail = course; showCourseDetailSheet = true; selectedConflictGroup = null
+                        }.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = course.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = "${course.room} | ${course.teacher}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        val isSelected = preferredConflictIds.contains(course.id) || (!preferredConflictIds.any { id -> selectedConflictGroup!!.map{it.id}.contains(id) } && course == selectedConflictGroup!!.first())
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = {
+                                val newSet = preferredConflictIds.toMutableSet()
+                                newSet.removeAll(selectedConflictGroup!!.map { it.id }.toSet())
+                                newSet.add(course.id)
+                                onPreferredConflictChange(newSet)
+                            }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+    }
+
+    if (showSetCurrentWeekDialog) {
+        SetCurrentWeekDialog(
+            currentActualWeek = currentActualWeek, totalWeeks = totalWeeks,
+            onDismiss = { showSetCurrentWeekDialog = false },
+            onConfirm = { newWeek -> onSetCurrentWeek(newWeek); showSetCurrentWeekDialog = false; coroutineScope.launch { pagerState.animateScrollToPage(newWeek - 1) } }
+        )
+    }
+
+    if (timetableToDelete != null) {
+        val deleteName = timetables.find { it.id == timetableToDelete }?.name ?: ""
+        AlertDialog(
+            onDismissRequest = { timetableToDelete = null },
+            title = { Text("删除课表", fontWeight = FontWeight.Bold) },
+            text = { Text("您确定要删除\"$deleteName\"吗？") },
+            confirmButton = { TextButton(onClick = { onDeleteTimetable(timetableToDelete!!); timetableToDelete = null }) { Text("删除", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { timetableToDelete = null }) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        )
+    }
+
+    if (showShareMenuDialog) {
+        AlertDialog(
+            onDismissRequest = { showShareMenuDialog = false },
+            title = { Text("分享课表", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = {
+                        val content = encodeShareData(context, activeTimetable?.courses ?: emptyList())
+                        val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("FlowCourse", content))
+                        Toast.makeText(context, "已复制加密课表到剪切板，去粘贴给好友吧！", Toast.LENGTH_SHORT).show()
+                        showShareMenuDialog = false
+                    }, modifier = Modifier.fillMaxWidth()) { Text("复制到剪切板") }
+                    Button(onClick = {
+                        val content = encodeShareData(context, activeTimetable?.courses ?: emptyList())
+                        val file = java.io.File(context.cacheDir, "FlowCourse分享课表.flowcourse")
+                        file.writeText(content)
+                        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "application/octet-stream"
+                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(intent, "分享 .flowcourse 文件"))
+                        showShareMenuDialog = false
+                    }, modifier = Modifier.fillMaxWidth()) { Text("生成文件并发送至 APP") }
+                }
+            },
+            confirmButton = {}, dismissButton = { TextButton(onClick = { showShareMenuDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        )
+    }
+
+    if (showImportMenuDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportMenuDialog = false },
+            title = { Text("导入课表", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = { showImportMenuDialog = false; onNavigateToBrowser() }, modifier = Modifier.fillMaxWidth()) { Text("从教务系统导入") }
+                    Button(onClick = {
+                        val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        val clipText = clipboardManager.primaryClip?.getItemAt(0)?.text?.toString()
+                        if (clipText != null) {
+                            val imported = decodeShareData(clipText)
+                            if (imported != null && imported.isNotEmpty()) { onImportCourses(imported); showImportMenuDialog = false } else { Toast.makeText(context, "剪切板内未发现有效的课表数据", Toast.LENGTH_SHORT).show() }
+                        } else { Toast.makeText(context, "剪切板为空", Toast.LENGTH_SHORT).show() }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("从剪切板导入") }
+                    Button(onClick = {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(android.content.Intent.CATEGORY_OPENABLE); type = "*/*" }
+                        shareImportLauncher.launch(intent)
+                        showImportMenuDialog = false
+                    }, modifier = Modifier.fillMaxWidth()) { Text("从文件中导入课表") }
+                }
+            },
+            confirmButton = {}, dismissButton = { TextButton(onClick = { showImportMenuDialog = false }) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        )
+    }
+
+    if (localUpdateInfo != null) {
+        AlertDialog(
+            onDismissRequest = { localUpdateInfo = null },
+            title = { Text("发现新版本：${localUpdateInfo!!.tag_name}", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text("更新内容：", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(localUpdateInfo!!.body, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                Button(onClick = { uriHandler.openUri(localUpdateInfo!!.html_url); localUpdateInfo = null }) {
+                    Text("前往 GitHub 下载")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { localUpdateInfo = null }) { Text("暂不更新", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        )
+    }
+}
+
+@Composable
+fun RowScope.DrawerMenuItem(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, onClick: () -> Unit) {
+    NavigationDrawerItem(
+        icon = { Icon(icon, contentDescription = text, modifier = Modifier.size(22.dp)) },
+        label = { Text(text, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        selected = false,
+        onClick = onClick,
+        modifier = Modifier.weight(1f).padding(horizontal = 4.dp, vertical = 2.dp)
+    )
 }
 
 @Composable

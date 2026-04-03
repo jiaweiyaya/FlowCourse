@@ -191,9 +191,11 @@ fun SettingsScreen(
     realTimeSlider: Boolean,
     onRealTimeSliderChange: (Boolean) -> Unit,
     savedBrowserUrl: String,
-    onBrowserSettingsSave: (String, Int, Int) -> Unit,
+    onBrowserSettingsSave: (String, Int, Int, String, String) -> Unit,
     savedDesktopWidth: Int,
     savedDesktopHeight: Int,
+    savedUsername: String,
+    savedPassword: String,
     autoCheckUpdate: Boolean,
     onAutoCheckUpdateChange: (Boolean) -> Unit,
     onManualCheckUpdate: () -> Unit,
@@ -227,6 +229,8 @@ fun SettingsScreen(
     var tempUrl by remember(savedBrowserUrl) { mutableStateOf(savedBrowserUrl) }
     var tempWidth by remember(savedDesktopWidth) { mutableStateOf(savedDesktopWidth.toString()) }
     var tempHeight by remember(savedDesktopHeight) { mutableStateOf(savedDesktopHeight.toString()) }
+    var tempUsername by remember(savedUsername) { mutableStateOf(savedUsername) }
+    var tempPassword by remember(savedPassword) { mutableStateOf(savedPassword) }
 
     var showColorDialog by remember { mutableStateOf(false) }
     var showBorderColorDialog by remember { mutableStateOf(false) } // 控制框线颜色弹窗
@@ -251,11 +255,15 @@ fun SettingsScreen(
 
     val isModified = tempUrl != savedBrowserUrl ||
             tempWidth != savedDesktopWidth.toString() ||
-            tempHeight != savedDesktopHeight.toString()
+            tempHeight != savedDesktopHeight.toString() ||
+            tempUsername != savedUsername ||
+            tempPassword != savedPassword
 
     val isNotDefault = savedBrowserUrl != sysDefaultUrl ||
             savedDesktopWidth != sysDefaultWidth ||
-            savedDesktopHeight != sysDefaultHeight
+            savedDesktopHeight != sysDefaultHeight ||
+            savedUsername.isNotEmpty() ||
+            savedPassword.isNotEmpty()
 
     val buttonState = when {
         isModified -> "SAVE"
@@ -609,7 +617,13 @@ fun SettingsScreen(
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.clickable {
-                                    onBrowserSettingsSave(tempUrl, tempWidth.toIntOrNull() ?: sysDefaultWidth, tempHeight.toIntOrNull() ?: sysDefaultHeight)
+                                    onBrowserSettingsSave(
+                                        tempUrl,
+                                        tempWidth.toIntOrNull() ?: sysDefaultWidth,
+                                        tempHeight.toIntOrNull() ?: sysDefaultHeight,
+                                        tempUsername, // 传入账号
+                                        tempPassword  // 传入密码
+                                    )
                                 }
                             )
                         }
@@ -619,7 +633,7 @@ fun SettingsScreen(
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.clickable {
-                                    onBrowserSettingsSave(sysDefaultUrl, sysDefaultWidth, sysDefaultHeight)
+                                    onBrowserSettingsSave(sysDefaultUrl, sysDefaultWidth, sysDefaultHeight, "", "")
                                 }
                             )
                         }
@@ -658,12 +672,36 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+
             Text(
                 "提示：在电脑模式下，页面将模拟设置的分辨率强制渲染。",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 账号密码输入框
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = tempUsername,
+                    onValueChange = { tempUsername = it },
+                    label = { Text("教务系统账号 (选填)") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = tempPassword,
+                    onValueChange = { tempPassword = it },
+                    label = { Text("教务系统密码 (选填)") },
+                    // 使用 PasswordVisualTransformation 隐藏密码（需要导包：import androidx.compose.ui.text.input.PasswordVisualTransformation）
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+            }
 
             Spacer(modifier = Modifier.height(120.dp))
         }

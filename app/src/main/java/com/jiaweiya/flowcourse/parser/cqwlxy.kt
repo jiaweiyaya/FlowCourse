@@ -160,4 +160,36 @@ object CqwlxyParser {
         val single = parseSingle(nodesStr)
         return Pair(single, single)
     }
+
+    fun getAutoFillScript(url: String, username: String, password: String): String? {
+        // 根据截图特征，判断当前是否为重庆文理学院的 WebVPN 或 统一身份认证登录页
+        val isTargetLoginPage = url.contains("myvpn.cqwu.edu.cn") && url.contains("authserver/login")
+
+        if (isTargetLoginPage) {
+            return """
+                javascript:(function() {
+                    var un = '$username';
+                    var pw = '$password';
+                    var userField = document.getElementById('username') || document.getElementById('yhm') || document.querySelector('input[type="text"]:not([readonly])');
+                    var passField = document.getElementById('password') || document.getElementById('mm') || document.querySelector('input[type="password"]');
+                    
+                    if (userField && passField) {
+                        userField.value = un;
+                        passField.value = pw;
+                        
+                        // 触发 input 和 change 事件，防止现代前端框架(Vue/React)检测不到值变动导致登录按钮灰色
+                        var eventInput = new Event('input', { bubbles: true });
+                        var eventChange = new Event('change', { bubbles: true });
+                        userField.dispatchEvent(eventInput);
+                        userField.dispatchEvent(eventChange);
+                        passField.dispatchEvent(eventInput);
+                        passField.dispatchEvent(eventChange);
+                    }
+                })();
+            """.trimIndent()
+        }
+
+        // 如果不是目标页面，返回 null，浏览器不会执行任何注入
+        return null
+    }
 }

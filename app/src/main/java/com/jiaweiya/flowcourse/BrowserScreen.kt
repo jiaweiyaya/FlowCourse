@@ -63,6 +63,8 @@ fun BrowserScreen(
     defaultUrl: String,
     desktopWidth: Int,
     desktopHeight: Int,
+    autoUsername: String,
+    autoPassword: String,
     onBackClick: () -> Unit,
     onImportCourses: (List<Course>) -> Unit
 ) {
@@ -229,7 +231,7 @@ fun BrowserScreen(
                     WebView.setWebContentsDebuggingEnabled(true)
                     WebView(ctx).apply {
                         setupWebViewSettings(this, isDesktopMode)
-                        setupClients(this, logger, desktopWidth, { isDesktopMode }, { url -> inputText = url })
+                        setupClients(this, logger, desktopWidth, autoUsername, autoPassword, { isDesktopMode }, { url -> inputText = url })
                         webViewRef = this
                         loadUrl(defaultUrl)
                     }
@@ -292,6 +294,8 @@ private fun setupClients(
     webView: WebView,
     logger: (String) -> Unit,
     desktopWidth: Int,
+    autoUsername: String,
+    autoPassword: String,
     isDesktopProvider: () -> Boolean,
     onUrlChanged: (String) -> Unit
 ) {
@@ -338,9 +342,22 @@ private fun setupClients(
         override fun onPageFinished(view: WebView?, url: String?) {
             super.onPageFinished(view, url)
             logger("✅ [页面就绪] $url")
+
             if (isDesktopProvider()) {
                 val js = "javascript:(function(){var m=document.querySelector('meta[name=\"viewport\"]');if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}m.content='width=$desktopWidth';})();"
                 view?.evaluateJavascript(js, null)
+            }
+
+            // 2. 修改后：由解析器脚本控制自动填充位置
+            if (autoUsername.isNotEmpty() && autoPassword.isNotEmpty() && url != null) {
+                // 向 CqwlxyParser 询问当前 URL 是否需要填充脚本
+                val fillJs = CqwlxyParser.getAutoFillScript(url, autoUsername, autoPassword)
+
+                // 如果解析器返回了脚本（说明匹配上了登录页规则），才执行注入
+                if (fillJs != null) {
+                    view?.evaluateJavascript(fillJs, null)
+                    logger("🚀 [自动填充] 匹配到目标登录页，已自动填入账号密码")
+                }
             }
         }
     }

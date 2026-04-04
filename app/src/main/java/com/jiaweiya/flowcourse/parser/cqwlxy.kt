@@ -162,7 +162,7 @@ object CqwlxyParser {
     }
 
     fun getAutoFillScript(url: String, username: String, password: String, autoLogin: Boolean): String? {
-        val isTargetLoginPage = url.contains("myvpn.cqwu.edu.cn") && url.contains("authserver/login")
+        val isTargetLoginPage = url.contains("cqwu.edu.cn") && url.contains("authserver/login")
 
         if (isTargetLoginPage) {
             return """

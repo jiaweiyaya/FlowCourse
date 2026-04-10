@@ -66,6 +66,7 @@ import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -777,7 +778,7 @@ fun SettingsScreen(
             ) {
                 Column {
                     Text("登录后自动打开教务系统", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                    Text("需开启自动回车登录，自动点击'教学管理系统'", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("需开启自动回车登录，自动跳转'教学管理系统'", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(
                     checked = tempAutoNavigate,
@@ -798,14 +799,14 @@ fun SettingsScreen(
         }
     }
 
+    val isSystemDark = isSystemInDarkTheme()
+
     if (showThemeDialog) {
         ThemeSelectionDialog(
             currentTheme = themeMode,
             onDismiss = { showThemeDialog = false },
             onSave = { newTheme ->
                 onThemeChange(newTheme)
-                // 判断并联动课程边框开关
-                val isSystemDark = android.content.res.Configuration.UI_MODE_NIGHT_YES == (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK)
 
                 if (newTheme == 2 || (newTheme == 0 && isSystemDark)) {
                     onShowCourseBorderChange(false) // 切换为深色时关闭框线

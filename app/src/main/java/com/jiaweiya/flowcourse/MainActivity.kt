@@ -92,6 +92,12 @@ import androidx.compose.ui.draw.blur
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.grid.items
 
+import android.webkit.JavascriptInterface
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+
 import com.jiaweiya.flowcourse.widget.TimetableWidget
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
 
@@ -896,6 +902,9 @@ fun TimetableScreen(
     var showShareMenuDialog by remember { mutableStateOf(false) }
     var showImportMenuDialog by remember { mutableStateOf(false) }
 
+    var showAutoUpdateDialog by remember { mutableStateOf(false) }
+    val hasCredentials = !context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE).getString("auto_username", "").isNullOrEmpty() && !context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE).getString("auto_password", "").isNullOrEmpty()
+
     val blurRadius by animateDpAsState(targetValue = if (drawerState.targetValue == DrawerValue.Open) 16.dp else 0.dp, label = "blur")
 
     ModalNavigationDrawer(
@@ -910,6 +919,8 @@ fun TimetableScreen(
                 realTimeSlider = realTimeSlider,
                 timetables = timetables,
                 onCloseDrawer = { coroutineScope.launch { drawerState.close() } },
+                hasCredentials = hasCredentials,
+                onShowAutoUpdateDialog = { showAutoUpdateDialog = true },
                 onNavigateToAbout = onNavigateToAbout,
                 onNavigateToSettings = onNavigateToSettings,
                 onNavigateToEditTimeProfile = onNavigateToEditTimeProfile,
@@ -1195,6 +1206,34 @@ fun TimetableScreen(
             },
             dismissButton = {
                 TextButton(onClick = { localUpdateInfo = null }) { Text("暂不更新", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        )
+    }
+
+    if (showAutoUpdateDialog) {
+        AutoUpdateTimetableDialog(
+            onDismiss = { showAutoUpdateDialog = false },
+            onSuccess = { newCourses ->
+                showAutoUpdateDialog = false
+                val existingCourses = activeTimetable?.courses ?: emptyList()
+                val processedCourses = newCourses.mapIndexed { index, imported ->
+                    val matched = existingCourses.find { it.name == imported.name }
+                    val maxId = existingCourses.maxOfOrNull { it.id } ?: 0
+                    imported.copy(
+                        id = maxId + index + 1,
+                        bgColor = matched?.bgColor ?: imported.bgColor,
+                        textColor = matched?.textColor ?: imported.textColor
+                    )
+                }
+                val newWeek = processedCourses.flatMap { it.weekList }.maxOrNull() ?: activeTimetable?.totalWeeks ?: 20
+
+                // 修复点：不能直接 timetables = ...，改为调用回调函数保存
+                val newTimetables = timetables.map {
+                    if (it.id == activeTimetableId) it.copy(courses = processedCourses, totalWeeks = maxOf(it.totalWeeks, newWeek)) else it
+                }
+                onReorderTimetables(newTimetables) // 使用现成的回调来更新主数据！
+
+                Toast.makeText(context, "课表自动更新完毕！", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -1513,4 +1552,153 @@ fun DetailRow(icon: String, title: String, content: String) {
             Text(content, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
         }
     }
+}
+
+// 通信桥梁，接收 JS 传回来的 HTML 源码
+class JSBridge(val onResult: (String) -> Unit) {
+    @JavascriptInterface
+    fun onTimetableExtracted(html: String) { onResult(html) }
+}
+
+@Composable
+fun AutoUpdateTimetableDialog(
+    onDismiss: () -> Unit,
+    onSuccess: (List<Course>) -> Unit
+) {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
+    val defaultUrl = prefs.getString("default_url", "http://www.cqwu.edu.cn/redir/redirTmp.jsp") ?: ""
+    val autoUsername = prefs.getString("auto_username", "") ?: ""
+    val autoPassword = prefs.getString("auto_password", "") ?: ""
+
+    val logs = remember { mutableStateListOf<String>("初始化静默更新引擎...") }
+    val coroutineScope = rememberCoroutineScope()
+
+    // 控制网页是否可见的状态
+    var showWebView by remember { mutableStateOf(false) }
+
+    fun log(msg: String) {
+        coroutineScope.launch(Dispatchers.Main) {
+            logs.add(0, msg)
+            if (logs.size > 50) logs.removeAt(logs.lastIndex)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("正在自动更新课表", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // 根据是否展开网页，动态调整日志区域的高度
+                val logHeight by animateDpAsState(targetValue = if (showWebView) 100.dp else 250.dp, label = "logHeight")
+
+                // 显示 WebView 组件日志
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier
+                        .height(logHeight)
+                        .fillMaxWidth()
+                        .background(Color(0xFF121212), RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    items(logs.size) { index ->
+                        val msg = logs[index]
+                        val color = when {
+                            msg.contains("❌") -> Color(0xFFFF5252)
+                            msg.contains("✅") -> Color(0xFF69F0AE)
+                            else -> Color(0xFFB0BEC5)
+                        }
+                        Text(msg, color = color, fontSize = 11.sp, lineHeight = 16.sp, modifier = Modifier.padding(vertical = 2.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 根据状态动态调整 WebView 的高度和透明度
+                val webViewHeight by animateDpAsState(targetValue = if (showWebView) 350.dp else 1.dp, label = "wvHeight")
+                val webViewAlpha by animateFloatAsState(targetValue = if (showWebView) 1f else 0f, label = "wvAlpha")
+
+                // 隐藏或展示的 WebView
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(webViewHeight)
+                        .alpha(webViewAlpha)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White)
+                ) {
+                    androidx.compose.ui.viewinterop.AndroidView(
+                        factory = { ctx ->
+                            com.tencent.smtt.sdk.WebView(ctx).apply {
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.setSupportMultipleWindows(false)
+                                settings.setSupportZoom(true)   // 开启缩放方便查看
+                                settings.builtInZoomControls = true
+                                settings.displayZoomControls = false
+                                settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0"
+
+                                addJavascriptInterface(JSBridge { html ->
+                                    log("✅ [解析] 解析到课表，正在处理...")
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val courses = CqwlxyParser.parseCourseFromHtml(html)
+                                        withContext(Dispatchers.Main) {
+                                            if (courses.isNotEmpty()) {
+                                                log("✅ [成功] 完美解析出 ${courses.size} 门课程！")
+                                                kotlinx.coroutines.delay(600)
+                                                onSuccess(courses)
+                                            } else {
+                                                log("❌ [错误] 未解析到课表")
+                                            }
+                                        }
+                                    }
+                                }, "AndroidBridge")
+
+                                webViewClient = object : com.tencent.smtt.sdk.WebViewClient() {
+                                    override fun onPageFinished(view: com.tencent.smtt.sdk.WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        url?.let {
+                                            log("到达: ${it.take(35)}...")
+                                            // 原有的自动登录脚本
+                                            CqwlxyParser.getAutoFillScript(it, autoUsername, autoPassword, true)?.let { script ->
+                                                log("注入账号密码...")
+                                                view?.evaluateJavascript(script, null)
+                                            }
+                                            // 静默更新专用的路由跳转脚本
+                                            CqwlxyParser.getSilentAutoNavigateScript(it)?.let { script ->
+                                                log("执行跳转路由...")
+                                                view?.evaluateJavascript(script, null)
+                                            }
+                                            // 静默更新专用的提取课表脚本
+                                            CqwlxyParser.getSilentExtractScript(it)?.let { script ->
+                                                log("放置课表提取探针...")
+                                                view?.evaluateJavascript(script, null)
+                                            }
+                                        }
+                                    }
+                                }
+                                webChromeClient = object : com.tencent.smtt.sdk.WebChromeClient() {
+                                    override fun onConsoleMessage(msg: com.tencent.smtt.export.external.interfaces.ConsoleMessage?): Boolean {
+                                        if (msg?.message()?.startsWith("[JS]") == true) log("${msg.message()}")
+                                        return true
+                                    }
+                                }
+                                log("连接教务系统...")
+                                loadUrl(defaultUrl)
+                            }
+                        }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { showWebView = !showWebView }) {
+                Text(if (showWebView) "隐藏网页" else "查看网页", color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    )
 }

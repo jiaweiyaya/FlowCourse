@@ -24,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -48,6 +49,8 @@ fun MainDrawerSheet(
     realTimeSlider: Boolean,
     timetables: List<TimetableData>,
     onCloseDrawer: () -> Unit,
+    hasCredentials: Boolean,
+    onShowAutoUpdateDialog: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToEditTimeProfile: (Int) -> Unit,
@@ -172,6 +175,27 @@ fun MainDrawerSheet(
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 DrawerMenuItem(Icons.Default.Build, "课表属性") { onCloseDrawer(); onNavigateToEditTimetable(activeTimetableId) }
             }
+            NavigationDrawerItem(
+                label = { Text("更新当前课表") },
+                icon = { Icon(Icons.Default.Refresh, contentDescription = "刷新") },
+                selected = false,
+                onClick = {
+                    if (hasCredentials) {
+                        onShowAutoUpdateDialog()
+                        onCloseDrawer()
+                    } else {
+                        Toast.makeText(context, "请先在设置中填写学号和密码", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                badge = {
+                    if (!hasCredentials) {
+                        Text("未配置账号", fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .alpha(if (hasCredentials) 1f else 0.5f)
+            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 

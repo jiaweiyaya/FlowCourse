@@ -246,4 +246,105 @@ object CqwlxyParser {
         }
         return null
     }
+
+    // 静默自动更新专用的多级路由跳转脚本
+    fun getSilentAutoNavigateScript(url: String): String? {
+        val isPortalPage = url.contains("cqwu.edu.cn") && url.contains("new/index.html")
+        val isJwmisHome = url.contains("cqwu.edu.cn") && url.contains("cqwljw/frame/homes.action")
+
+        // 如果在学生后台页面，静默跳转到教务系统
+        if (isPortalPage) {
+            return """
+            javascript:(function() {
+                console.log('[JS] [静默] 处于学生后台，开始跳转至教学管理系统...');
+                var appId = '5299144291521305'; 
+                var timestamp = new Date().getTime();
+                var basePath = window.location.href.split('/new/')[0];
+                var reqUrl = basePath + '/jsonp/sendRecUseApp.json?appId=' + appId + '&_=' + timestamp;
+                if (typeof jQuery !== 'undefined') {
+                    jQuery.ajax({ url: reqUrl, type: 'GET', dataType: 'json' });
+                } else {
+                    fetch(reqUrl);
+                }
+                var targetUrl = basePath + '/appShow?appId=' + appId;
+                setTimeout(function() { window.location.replace(targetUrl); }, 300);
+            })();
+            """.trimIndent()
+        }
+
+        // 如果已经进入教务系统主页，直接跳跃到课表所在页面
+        if (isJwmisHome) {
+            return """
+            javascript:(function() {
+                console.log('[JS] [静默] 进入教学管理系统，跳转至课表页...');
+                var basePath = window.location.href.split('/cqwljw/')[0];
+                var targetUrl = basePath + '/cqwljw/student/xkjg.wdkb.jsp?menucode=S20301';
+                setTimeout(function() { window.location.replace(targetUrl); }, 500);
+            })();
+            """.trimIndent()
+        }
+        return null
+    }
+
+    // 静默自动更新专用的提取课表与回传脚本
+    fun getSilentExtractScript(url: String): String? {
+        val isTimetablePage = url.contains("xkjg.wdkb.jsp")
+
+        // 3. 如果在课表页面，轮询表格并主动通过 AndroidBridge 传回安卓端
+        if (isTimetablePage) {
+            return """
+            javascript:(function() {
+                console.log('[JS] [静默] 已抵达课表页，等待数据...');
+                
+                // 深度遍历寻找课表
+                function findTable(doc) {
+                    if(!doc) return null;
+                    var t = doc.getElementById('mytable');
+                    if(t) return t.outerHTML;
+                    var ts = doc.getElementsByTagName('table');
+                    for(var i=0; i<ts.length; i++){
+                        if(ts[i].innerText.indexOf('星期一') > -1 && ts[i].innerText.indexOf('星期二') > -1) {
+                            return ts[i].outerHTML;
+                        }
+                    }
+                    return null;
+                }
+                
+                function walk(win, depth) {
+                    if(depth > 5) return null;
+                    try {
+                        var r = findTable(win.document);
+                        if(r) return r;
+                    } catch(e){}
+                    try {
+                        for(var i=0; i<win.frames.length; i++){
+                            var fr = walk(win.frames[i], depth+1);
+                            if(fr) return fr;
+                        }
+                    } catch(e){}
+                    return null;
+                }
+
+                var checkCount = 0;
+                var timer = setInterval(function() {
+                    checkCount++;
+                    // 利用递归穿透寻找课表的 HTML
+                    var tableHtml = walk(window, 0);
+                    
+                    if (tableHtml) {
+                        clearInterval(timer);
+                        console.log('✅ [JS] [静默] 提取成功！正在回传...');
+                        if (window.AndroidBridge) {
+                            window.AndroidBridge.onTimetableExtracted(tableHtml);
+                        }
+                    } else if (checkCount > 30) {
+                        clearInterval(timer);
+                        console.log('❌ [JS] [静默] 超时：未找到课表表格');
+                    }
+                }, 500);
+            })();
+            """.trimIndent()
+        }
+        return null
+    }
 }

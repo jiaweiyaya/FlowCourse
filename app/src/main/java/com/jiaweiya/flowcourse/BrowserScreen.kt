@@ -66,6 +66,7 @@ fun BrowserScreen(
     autoUsername: String,
     autoPassword: String,
     autoLogin: Boolean,
+    autoNavigate: Boolean,
     onBackClick: () -> Unit,
     onImportCourses: (List<Course>) -> Unit
 ) {
@@ -232,7 +233,7 @@ fun BrowserScreen(
                     WebView.setWebContentsDebuggingEnabled(true)
                     WebView(ctx).apply {
                         setupWebViewSettings(this, isDesktopMode)
-                        setupClients(this, logger, desktopWidth, autoUsername, autoPassword, autoLogin, { isDesktopMode }, { url -> inputText = url })
+                        setupClients(this, logger, desktopWidth, autoUsername, autoPassword, autoLogin, autoNavigate, { isDesktopMode }, { url -> inputText = url })
                         webViewRef = this
                         loadUrl(defaultUrl)
                     }
@@ -298,6 +299,7 @@ private fun setupClients(
     autoUsername: String,
     autoPassword: String,
     autoLogin: Boolean,
+    autoNavigate: Boolean,
     isDesktopProvider: () -> Boolean,
     onUrlChanged: (String) -> Unit
 ) {
@@ -359,11 +361,24 @@ private fun setupClients(
                     logger("🚀 [自动填充] 匹配到目标登录页，已自动填入账号密码")
                 }
             }
+
+            if (url != null) {
+                val navJs = CqwlxyParser.getAutoNavigateScript(url, autoNavigate)
+                if (navJs != null) {
+                    view?.evaluateJavascript(navJs, null)
+                    logger("🔗 [自动跳转] 正在寻找并点击教学管理系统...")
+                }
+            }
         }
     }
 
     webView.webChromeClient = object : WebChromeClient() {
         override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+            val msg = consoleMessage?.message() ?: ""
+            // 过滤一下，只拦截带有 [JS] 前缀的日志，避免被网页日志刷屏
+            if (msg.startsWith("[JS]")) {
+                logger("📜 $msg")
+            }
             return super.onConsoleMessage(consoleMessage)
         }
     }

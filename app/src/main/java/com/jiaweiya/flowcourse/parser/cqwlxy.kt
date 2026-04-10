@@ -162,6 +162,7 @@ object CqwlxyParser {
     }
 
     fun getAutoFillScript(url: String, username: String, password: String, autoLogin: Boolean): String? {
+
         val isTargetLoginPage = url.contains("cqwu.edu.cn") && url.contains("authserver/login")
 
         if (isTargetLoginPage) {
@@ -198,6 +199,50 @@ object CqwlxyParser {
                     }
                 })();
             """.trimIndent()
+        }
+        return null
+    }
+
+    fun getAutoNavigateScript(url: String, autoNavigate: Boolean): String? {
+        if (!autoNavigate) return null
+
+        val isPortalPage = url.contains("cqwu.edu.cn") && url.contains("new/index.html")
+
+        if (isPortalPage) {
+            return """
+            javascript:(function() {
+                console.log('[JS] 正在跳转教学管理系统...');
+                var appId = '5299144291521305'; 
+                var timestamp = new Date().getTime();
+                
+                // 获取当前页面的前缀路径
+                // 直连：https://ehall.cqwu.edu.cn/new/index.html -> 拿到 https://ehall.cqwu.edu.cn
+                // WebVPN：https://webvpn.xxx/http/77726476/new/index.html -> 拿到 https://webvpn.xxx/http/77726476
+                var basePath = window.location.href.split('/new/')[0];
+                
+                // 发送记录请求，携带完整的当前环境上下文
+                var reqUrl = basePath + '/jsonp/sendRecUseApp.json?appId=' + appId + '&_=' + timestamp;
+                if (typeof jQuery !== 'undefined') {
+                    jQuery.ajax({
+                        url: reqUrl,
+                        type: 'GET',
+                        dataType: 'json',
+                        success: function() { console.log('记录发送成功'); }
+                    });
+                } else {
+                    fetch(reqUrl);
+                }
+
+                // 延迟跳转，利用 basePath 保证在 WebVPN 环境内跳转
+                var targetUrl = basePath + '/appShow?appId=' + appId;
+                console.log('[JS] 准备自适应跳转到: ' + targetUrl);
+                
+                setTimeout(function() {
+                    // 尝试在当前页覆盖跳转
+                    window.location.replace(targetUrl);
+                }, 300);
+            })();
+        """.trimIndent()
         }
         return null
     }

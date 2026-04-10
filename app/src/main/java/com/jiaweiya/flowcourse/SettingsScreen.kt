@@ -193,12 +193,13 @@ fun SettingsScreen(
     realTimeSlider: Boolean,
     onRealTimeSliderChange: (Boolean) -> Unit,
     savedBrowserUrl: String,
-    onBrowserSettingsSave: (String, Int, Int, String, String, Boolean) -> Unit,
+    onBrowserSettingsSave: (String, Int, Int, String, String, Boolean, Boolean) -> Unit,
     savedDesktopWidth: Int,
     savedDesktopHeight: Int,
     savedUsername: String,
     savedPassword: String,
     savedAutoLogin: Boolean,
+    savedAutoNavigate: Boolean,
     autoCheckUpdate: Boolean,
     onAutoCheckUpdateChange: (Boolean) -> Unit,
     onManualCheckUpdate: () -> Unit,
@@ -235,19 +236,22 @@ fun SettingsScreen(
     var tempUsername by remember(savedUsername) { mutableStateOf(savedUsername) }
     var tempPassword by remember(savedPassword) { mutableStateOf(savedPassword) }
     var tempAutoLogin by remember(savedAutoLogin) { mutableStateOf(savedAutoLogin) }
+    var tempAutoNavigate by remember(savedAutoNavigate) { mutableStateOf(savedAutoNavigate) }
     val isModified = tempUrl != savedBrowserUrl ||
             tempWidth != savedDesktopWidth.toString() ||
             tempHeight != savedDesktopHeight.toString() ||
             tempUsername != savedUsername ||
             tempPassword != savedPassword ||
-            tempAutoLogin != savedAutoLogin
+            tempAutoLogin != savedAutoLogin ||
+            tempAutoNavigate != savedAutoNavigate
 
     val isNotDefault = savedBrowserUrl != sysDefaultUrl ||
             savedDesktopWidth != sysDefaultWidth ||
             savedDesktopHeight != sysDefaultHeight ||
             savedUsername.isNotEmpty() ||
             savedPassword.isNotEmpty() ||
-            savedAutoLogin
+            savedAutoLogin ||
+            savedAutoNavigate
 
     var showColorDialog by remember { mutableStateOf(false) }
     var showBorderColorDialog by remember { mutableStateOf(false) } // 控制框线颜色弹窗
@@ -636,9 +640,14 @@ fun SettingsScreen(
                                 modifier = Modifier.clickable {
                                     val accountChanged = tempUsername != savedUsername || tempPassword != savedPassword
                                     var finalAutoLogin = tempAutoLogin
+                                    var finalAutoNavigate = tempAutoNavigate
+
                                     if (accountChanged && tempUsername.isNotEmpty() && tempPassword.isNotEmpty()) {
                                         finalAutoLogin = true
                                         tempAutoLogin = true
+
+                                        finalAutoNavigate = true
+                                        tempAutoNavigate = true
                                     }
 
                                     onBrowserSettingsSave(
@@ -647,7 +656,8 @@ fun SettingsScreen(
                                         tempHeight.toIntOrNull() ?: sysDefaultHeight,
                                         tempUsername,
                                         tempPassword,
-                                        finalAutoLogin
+                                        finalAutoLogin,
+                                        finalAutoNavigate
                                     )
                                 }
                             )
@@ -658,7 +668,7 @@ fun SettingsScreen(
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.clickable {
-                                    onBrowserSettingsSave(sysDefaultUrl, sysDefaultWidth, sysDefaultHeight, "", "", false)
+                                    onBrowserSettingsSave(sysDefaultUrl, sysDefaultWidth, sysDefaultHeight, "", "", false, false)
                                 }
                             )
                         }
@@ -711,7 +721,10 @@ fun SettingsScreen(
                 value = tempUsername,
                 onValueChange = {
                     tempUsername = it
-                    if (it.isEmpty()) tempAutoLogin = false
+                    if (it.isEmpty()) {
+                        tempAutoLogin = false
+                        tempAutoNavigate = false
+                    }
                 },
                 label = { Text("教务系统账号 (选填)") },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -744,8 +757,32 @@ fun SettingsScreen(
                 }
                 Switch(
                     checked = tempAutoLogin,
-                    onCheckedChange = { tempAutoLogin = it },
+                    onCheckedChange = {
+                        tempAutoLogin = it
+                        if (it) {
+                            tempAutoNavigate = true
+                        } else {
+                            tempAutoNavigate = false
+                        }
+                    },
                     enabled = tempUsername.isNotEmpty() && tempPassword.isNotEmpty(),
+                    modifier = Modifier.scale(1.0f)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("登录后自动打开教务系统", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("需开启自动回车登录，自动点击'教学管理系统'", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = tempAutoNavigate,
+                    onCheckedChange = { tempAutoNavigate = it },
+                    enabled = tempAutoLogin,
                     modifier = Modifier.scale(1.0f)
                 )
             }

@@ -293,6 +293,7 @@ class MainActivity : ComponentActivity() {
             var autoUsername by remember { mutableStateOf(sharedPrefs.getString("auto_username", "") ?: "") }
             var autoPassword by remember { mutableStateOf(sharedPrefs.getString("auto_password", "") ?: "") }
             var isAutoLoginEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_login", false)) }
+            var isAutoNavigateEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_navigate", false)) }
 
             // 用来存储用户选择要展示的冲突课程的 ID 集合
             var preferredConflictIds by remember { mutableStateOf(sharedPrefs.getStringSet("preferred_conflict_ids", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()) }
@@ -326,7 +327,7 @@ class MainActivity : ComponentActivity() {
                 bgImageUri, bgOpacity, highlightToday, showTimeLine, showConflictWarning, conflictColor,
                 preferredConflictIds, realTimeSlider, autoCheckUpdate, showWatermark,
                 showCourseBorder, courseBorderColor,
-                autoUsername, autoPassword, isAutoLoginEnabled
+                autoUsername, autoPassword, isAutoLoginEnabled, isAutoNavigateEnabled
             ) {
                 sharedPrefs.edit()
                     .putInt("theme_mode", themeMode)
@@ -337,6 +338,7 @@ class MainActivity : ComponentActivity() {
                     .putString("auto_username", autoUsername)
                     .putString("auto_password", autoPassword)
                     .putBoolean("auto_login", isAutoLoginEnabled)
+                    .putBoolean("auto_navigate", isAutoNavigateEnabled)
                     .putInt("desktop_width", desktopWidth)
                     .putInt("desktop_height", desktopHeight)
                     .putBoolean("highlight_today", highlightToday)
@@ -515,15 +517,16 @@ class MainActivity : ComponentActivity() {
                                     savedBrowserUrl = defaultBrowserUrl,
                                     savedDesktopWidth = desktopWidth,
                                     savedDesktopHeight = desktopHeight,
-                                    onBrowserSettingsSave = { url, w, h, user, pass, autoLogin ->
+                                    onBrowserSettingsSave = { url, w, h, user, pass, autoLogin, autoNav ->
                                         defaultBrowserUrl = url
                                         desktopWidth = w
                                         desktopHeight = h
                                         autoUsername = user
                                         autoPassword = pass
                                         isAutoLoginEnabled = autoLogin
+                                        isAutoNavigateEnabled = autoNav
                                     },
-                                    savedUsername = autoUsername, savedPassword = autoPassword, savedAutoLogin = isAutoLoginEnabled,
+                                    savedUsername = autoUsername, savedPassword = autoPassword, savedAutoLogin = isAutoLoginEnabled, savedAutoNavigate = isAutoNavigateEnabled,
                                     highlightToday = highlightToday, onHighlightTodayChange = { highlightToday = it },
                                     showTimeLine = showTimeLine, onShowTimeLineChange = { showTimeLine = it },
                                     showConflictWarning = showConflictWarning, onShowConflictWarningChange = { showConflictWarning = it },
@@ -704,7 +707,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 BrowserScreen(
                                     defaultUrl = defaultBrowserUrl, desktopWidth = desktopWidth, desktopHeight = desktopHeight,
-                                    autoUsername = autoUsername, autoPassword = autoPassword, autoLogin = isAutoLoginEnabled,
+                                    autoUsername = autoUsername, autoPassword = autoPassword, autoLogin = isAutoLoginEnabled, autoNavigate = isAutoNavigateEnabled,
                                     onBackClick = { navController.popBackStack() },
                                     onImportCourses = { importedCourses ->
                                         // 使用协程强制回到主线程操作 UI

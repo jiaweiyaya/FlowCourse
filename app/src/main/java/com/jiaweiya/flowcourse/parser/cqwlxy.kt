@@ -160,4 +160,191 @@ object CqwlxyParser {
         val single = parseSingle(nodesStr)
         return Pair(single, single)
     }
+
+    fun getAutoFillScript(url: String, username: String, password: String, autoLogin: Boolean): String? {
+
+        val isTargetLoginPage = url.contains("cqwu.edu.cn") && url.contains("authserver/login")
+
+        if (isTargetLoginPage) {
+            return """
+                javascript:(function() {
+                    var un = '$username';
+                    var pw = '$password';
+                    var userField = document.getElementById('username') || document.getElementById('yhm') || document.querySelector('input[type="text"]:not([readonly])');
+                    var passField = document.getElementById('password') || document.getElementById('mm') || document.querySelector('input[type="password"]');
+                    
+                    if (userField && passField) {
+                        userField.value = un;
+                        passField.value = pw;
+                        
+                        var eventInput = new Event('input', { bubbles: true });
+                        var eventChange = new Event('change', { bubbles: true });
+                        userField.dispatchEvent(eventInput);
+                        userField.dispatchEvent(eventChange);
+                        passField.dispatchEvent(eventInput);
+                        passField.dispatchEvent(eventChange);
+                        
+                        // 判断是否自动登录
+                        if ($autoLogin) {
+                            setTimeout(function() {
+                                // 模拟按下回车键
+                                var enterEvent = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13 });
+                                passField.dispatchEvent(enterEvent);
+                                
+                                // 以防回车无效，顺便尝试点击常见的登录按钮
+                                var loginBtn = document.getElementById('login_submit') || document.querySelector('.login_btn') || document.querySelector('button[type="submit"]');
+                                if (loginBtn) loginBtn.click();
+                            }, 300); // 延迟300毫秒等密码真正响应到页面上
+                        }
+                    }
+                })();
+            """.trimIndent()
+        }
+        return null
+    }
+
+    fun getAutoNavigateScript(url: String, autoNavigate: Boolean): String? {
+        if (!autoNavigate) return null
+
+        val isPortalPage = url.contains("cqwu.edu.cn") && url.contains("new/index.html")
+
+        if (isPortalPage) {
+            return """
+            javascript:(function() {
+                console.log('[JS] 正在跳转教学管理系统...');
+                var appId = '5299144291521305'; 
+                var timestamp = new Date().getTime();
+                
+                // 获取当前页面的前缀路径
+                // 直连：https://ehall.cqwu.edu.cn/new/index.html -> 拿到 https://ehall.cqwu.edu.cn
+                // WebVPN：https://webvpn.xxx/http/77726476/new/index.html -> 拿到 https://webvpn.xxx/http/77726476
+                var basePath = window.location.href.split('/new/')[0];
+                
+                // 发送记录请求，携带完整的当前环境上下文
+                var reqUrl = basePath + '/jsonp/sendRecUseApp.json?appId=' + appId + '&_=' + timestamp;
+                if (typeof jQuery !== 'undefined') {
+                    jQuery.ajax({
+                        url: reqUrl,
+                        type: 'GET',
+                        dataType: 'json',
+                        success: function() { console.log('记录发送成功'); }
+                    });
+                } else {
+                    fetch(reqUrl);
+                }
+
+                // 延迟跳转，利用 basePath 保证在 WebVPN 环境内跳转
+                var targetUrl = basePath + '/appShow?appId=' + appId;
+                console.log('[JS] 准备自适应跳转到: ' + targetUrl);
+                
+                setTimeout(function() {
+                    // 尝试在当前页覆盖跳转
+                    window.location.replace(targetUrl);
+                }, 300);
+            })();
+        """.trimIndent()
+        }
+        return null
+    }
+
+    // 静默自动更新专用的多级路由跳转脚本
+    fun getSilentAutoNavigateScript(url: String): String? {
+        val isPortalPage = url.contains("cqwu.edu.cn") && url.contains("new/index.html")
+        val isJwmisHome = url.contains("cqwu.edu.cn") && url.contains("cqwljw/frame/homes.action")
+
+        // 如果在学生后台页面，静默跳转到教务系统
+        if (isPortalPage) {
+            return """
+            javascript:(function() {
+                console.log('[JS] [静默] 处于学生后台，开始跳转至教学管理系统...');
+                var appId = '5299144291521305'; 
+                var timestamp = new Date().getTime();
+                var basePath = window.location.href.split('/new/')[0];
+                var reqUrl = basePath + '/jsonp/sendRecUseApp.json?appId=' + appId + '&_=' + timestamp;
+                if (typeof jQuery !== 'undefined') {
+                    jQuery.ajax({ url: reqUrl, type: 'GET', dataType: 'json' });
+                } else {
+                    fetch(reqUrl);
+                }
+                var targetUrl = basePath + '/appShow?appId=' + appId;
+                setTimeout(function() { window.location.replace(targetUrl); }, 300);
+            })();
+            """.trimIndent()
+        }
+
+        // 如果已经进入教务系统主页，直接跳跃到课表所在页面
+        if (isJwmisHome) {
+            return """
+            javascript:(function() {
+                console.log('[JS] [静默] 进入教学管理系统，跳转至课表页...');
+                var basePath = window.location.href.split('/cqwljw/')[0];
+                var targetUrl = basePath + '/cqwljw/student/xkjg.wdkb.jsp?menucode=S20301';
+                setTimeout(function() { window.location.replace(targetUrl); }, 500);
+            })();
+            """.trimIndent()
+        }
+        return null
+    }
+
+    // 静默自动更新专用的提取课表与回传脚本
+    fun getSilentExtractScript(url: String): String? {
+        val isTimetablePage = url.contains("xkjg.wdkb.jsp")
+
+        // 3. 如果在课表页面，轮询表格并主动通过 AndroidBridge 传回安卓端
+        if (isTimetablePage) {
+            return """
+            javascript:(function() {
+                console.log('[JS] [静默] 已抵达课表页，等待数据...');
+                
+                // 深度遍历寻找课表
+                function findTable(doc) {
+                    if(!doc) return null;
+                    var t = doc.getElementById('mytable');
+                    if(t) return t.outerHTML;
+                    var ts = doc.getElementsByTagName('table');
+                    for(var i=0; i<ts.length; i++){
+                        if(ts[i].innerText.indexOf('星期一') > -1 && ts[i].innerText.indexOf('星期二') > -1) {
+                            return ts[i].outerHTML;
+                        }
+                    }
+                    return null;
+                }
+                
+                function walk(win, depth) {
+                    if(depth > 5) return null;
+                    try {
+                        var r = findTable(win.document);
+                        if(r) return r;
+                    } catch(e){}
+                    try {
+                        for(var i=0; i<win.frames.length; i++){
+                            var fr = walk(win.frames[i], depth+1);
+                            if(fr) return fr;
+                        }
+                    } catch(e){}
+                    return null;
+                }
+
+                var checkCount = 0;
+                var timer = setInterval(function() {
+                    checkCount++;
+                    // 利用递归穿透寻找课表的 HTML
+                    var tableHtml = walk(window, 0);
+                    
+                    if (tableHtml) {
+                        clearInterval(timer);
+                        console.log('✅ [JS] [静默] 提取成功！正在回传...');
+                        if (window.AndroidBridge) {
+                            window.AndroidBridge.onTimetableExtracted(tableHtml);
+                        }
+                    } else if (checkCount > 30) {
+                        clearInterval(timer);
+                        console.log('❌ [JS] [静默] 超时：未找到课表表格');
+                    }
+                }, 500);
+            })();
+            """.trimIndent()
+        }
+        return null
+    }
 }

@@ -174,8 +174,8 @@ class TimetableWidget : GlanceAppWidget() {
         context: Context,
         course: Course,
         profileNodes: List<NodeTime>,
-        showCourseBorder: Boolean,  // 新增参数
-        courseBorderColor: Long     // 新增参数
+        showCourseBorder: Boolean,
+        courseBorderColor: Long
     ) {
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -189,7 +189,6 @@ class TimetableWidget : GlanceAppWidget() {
                 .fillMaxWidth()
                 .padding(bottom = 5.dp) // 卡片间的垂直间距
         ) {
-            // 新增一层 Box，如果开启了边框，就把它当作背景并应用 1dp 的 padding
             Box(
                 modifier = GlanceModifier
                     .fillMaxWidth()
@@ -198,17 +197,14 @@ class TimetableWidget : GlanceAppWidget() {
                         if (showCourseBorder) ColorProvider(Color(courseBorderColor))
                         else ColorProvider(Color.Transparent)
                     )
-                    // 内缩 1dp 就是边框的厚度
                     .padding(if (showCourseBorder) 1.dp else 0.dp)
                     // 点击事件放到最外层，保证整个边框区域都能点到
                     .clickable(actionStartActivity(openAppIntent))
             ) {
-                // 原来的 Row，负责实际的颜色背景和布局
                 Row(
                     modifier = GlanceModifier
                         .fillMaxWidth()
                         .background(ColorProvider(Color(course.bgColor)))
-                        // 内部圆角稍微小一点，避免边缘出现锯齿缝隙
                         .cornerRadius(if (showCourseBorder) 9.dp else 10.dp)
                         .padding(
                             start = 10.dp,

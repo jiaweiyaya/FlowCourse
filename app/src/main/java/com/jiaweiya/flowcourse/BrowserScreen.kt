@@ -63,6 +63,10 @@ fun BrowserScreen(
     defaultUrl: String,
     desktopWidth: Int,
     desktopHeight: Int,
+    autoUsername: String,
+    autoPassword: String,
+    autoLogin: Boolean,
+    autoNavigate: Boolean,
     onBackClick: () -> Unit,
     onImportCourses: (List<Course>) -> Unit
 ) {
@@ -198,7 +202,7 @@ fun BrowserScreen(
                                     }
 
                                     if (htmlContent.contains("星期一")) {
-// ✅ 修改后的代码：调用从 HTML 解析的方法（parseCourseFromHtml）
+                                        // 调用从 HTML 解析的方法（parseCourseFromHtml）
                                         val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(htmlContent) }
                                         if (newCourses.isNotEmpty()) {
                                             onImportCourses(newCourses)
@@ -229,7 +233,7 @@ fun BrowserScreen(
                     WebView.setWebContentsDebuggingEnabled(true)
                     WebView(ctx).apply {
                         setupWebViewSettings(this, isDesktopMode)
-                        setupClients(this, logger, desktopWidth, { isDesktopMode }, { url -> inputText = url })
+                        setupClients(this, logger, desktopWidth, autoUsername, autoPassword, autoLogin, autoNavigate, { isDesktopMode }, { url -> inputText = url })
                         webViewRef = this
                         loadUrl(defaultUrl)
                     }
@@ -292,6 +296,10 @@ private fun setupClients(
     webView: WebView,
     logger: (String) -> Unit,
     desktopWidth: Int,
+    autoUsername: String,
+    autoPassword: String,
+    autoLogin: Boolean,
+    autoNavigate: Boolean,
     isDesktopProvider: () -> Boolean,
     onUrlChanged: (String) -> Unit
 ) {
@@ -318,7 +326,7 @@ private fun setupClients(
         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
             super.onReceivedError(view, request, error)
             if (request?.isForMainFrame == true) {
-                logger("❌[主框架错误] ${error?.description}")
+                logger("❌ [主框架错误] ${error?.description}")
             }
         }
 
@@ -326,7 +334,7 @@ private fun setupClients(
             super.onReceivedHttpError(view, request, errorResponse)
             val urlStr = request?.url?.toString() ?: ""
             if (!urlStr.contains("campusphere.cn")) {
-                // logger("🔴[HTTP错误] ${errorResponse?.statusCode} -> $urlStr")
+                 logger("🔴 [HTTP错误] ${errorResponse?.statusCode} -> $urlStr")
             }
         }
 
@@ -338,15 +346,39 @@ private fun setupClients(
         override fun onPageFinished(view: WebView?, url: String?) {
             super.onPageFinished(view, url)
             logger("✅ [页面就绪] $url")
+
             if (isDesktopProvider()) {
                 val js = "javascript:(function(){var m=document.querySelector('meta[name=\"viewport\"]');if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}m.content='width=$desktopWidth';})();"
                 view?.evaluateJavascript(js, null)
+            }
+
+            // 由解析器脚本控制自动填充位置
+            if (autoUsername.isNotEmpty() && autoPassword.isNotEmpty() && url != null) {
+                val fillJs = CqwlxyParser.getAutoFillScript(url, autoUsername, autoPassword, autoLogin)
+
+                if (fillJs != null) {
+                    view?.evaluateJavascript(fillJs, null)
+                    logger("🚀 [自动填充] 匹配到目标登录页，已自动填入账号密码")
+                }
+            }
+
+            if (url != null) {
+                val navJs = CqwlxyParser.getAutoNavigateScript(url, autoNavigate)
+                if (navJs != null) {
+                    view?.evaluateJavascript(navJs, null)
+                    logger("🔗 [自动跳转] 正在寻找并点击教学管理系统...")
+                }
             }
         }
     }
 
     webView.webChromeClient = object : WebChromeClient() {
         override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+            val msg = consoleMessage?.message() ?: ""
+            // 过滤一下，只拦截带有 [JS] 前缀的日志，避免被网页日志刷屏
+            if (msg.startsWith("[JS]")) {
+                logger("📜 $msg")
+            }
             return super.onConsoleMessage(consoleMessage)
         }
     }

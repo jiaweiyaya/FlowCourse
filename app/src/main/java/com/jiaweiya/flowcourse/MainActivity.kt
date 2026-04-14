@@ -92,6 +92,12 @@ import androidx.compose.ui.draw.blur
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.grid.items
 
+import android.webkit.JavascriptInterface
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+
 import com.jiaweiya.flowcourse.widget.TimetableWidget
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
 
@@ -144,9 +150,6 @@ data class Course(
 val mockCourses = listOf(
     Course(1, "课程样例", "样例教室\nJM622-092^_^", "Jiaweiya", 1, 1, 2, listOf(1, 2, 3, 4, 5), 0xFFE3F2FD, 0xFF000000),
 )
-
-val timeSlotHeight = 65.dp
-val sideBarWidth = 35.dp
 
 // 加密与生成分享数据
 fun encodeShareData(context: Context, courses: List<Course>): String {
@@ -256,55 +259,6 @@ fun rememberBitmapFromUri(uriString: String?): ImageBitmap? {
     return bitmap
 }
 
-// 根据节点和当前时间计算 Y 轴偏移量
-fun calculateTimeLineOffset(currentTime: LocalTime, visibleNodes: List<NodeTime>, slotHeightPx: Float): Float {
-    if (visibleNodes.isEmpty()) return -1f
-
-    val currentMins = currentTime.hour * 60 + currentTime.minute
-
-    try {
-        // 获取全天第一节课的开始时间
-        val firstStartParts = visibleNodes.first().start.split(":")
-        val firstStartMins = firstStartParts[0].toInt() * 60 + firstStartParts[1].toInt()
-
-        // 获取全天最后一节课的结束时间
-        val lastEndParts = visibleNodes.last().end.split(":")
-        val lastEndMins = lastEndParts[0].toInt() * 60 + lastEndParts[1].toInt()
-
-        // 如果当前时间早于第一节课，或晚于最后一节课，直接返回 -1f 让时间线隐藏
-        if (currentMins < firstStartMins || currentMins > lastEndMins) {
-            return -1f
-        }
-    } catch (e: Exception) {
-        // 如果时间解析失败则忽略，继续往下走
-        e.printStackTrace()
-    }
-
-    // 如果在全天上课时间范围内，计算具体落在哪一节课或课间
-    for (i in visibleNodes.indices) {
-        try {
-            val node = visibleNodes[i]
-            val startParts = node.start.split(":")
-            val endParts = node.end.split(":")
-            val startMins = startParts[0].toInt() * 60 + startParts[1].toInt()
-            val endMins = endParts[0].toInt() * 60 + endParts[1].toInt()
-
-            // 如果处于两节课之间的课间休息，将时间线停留在下一节课的顶端
-            if (currentMins < startMins) {
-                return i * slotHeightPx
-            }
-            // 如果处于正在上课的时间段内，计算百分比平滑移动
-            if (currentMins <= endMins) {
-                val fraction = (currentMins - startMins).toFloat() / (endMins - startMins).toFloat()
-                return i * slotHeightPx + fraction * slotHeightPx
-            }
-        } catch (e: Exception) { continue }
-    }
-
-    // 如果发生异常流转到了最后，也隐藏线条
-    return -1f
-}
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -342,6 +296,11 @@ class MainActivity : ComponentActivity() {
             var showCourseBorder by remember { mutableStateOf(sharedPrefs.getBoolean("show_course_border", true)) }
             var courseBorderColor by remember { mutableLongStateOf(sharedPrefs.getLong("course_border_color", 0xFF9E77ED)) }
 
+            var autoUsername by remember { mutableStateOf(sharedPrefs.getString("auto_username", "") ?: "") }
+            var autoPassword by remember { mutableStateOf(sharedPrefs.getString("auto_password", "") ?: "") }
+            var isAutoLoginEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_login", false)) }
+            var isAutoNavigateEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_navigate", false)) }
+
             // 用来存储用户选择要展示的冲突课程的 ID 集合
             var preferredConflictIds by remember { mutableStateOf(sharedPrefs.getStringSet("preferred_conflict_ids", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()) }
 
@@ -373,7 +332,8 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(themeMode, defaultBrowserUrl, desktopWidth, desktopHeight, showBgImage,
                 bgImageUri, bgOpacity, highlightToday, showTimeLine, showConflictWarning, conflictColor,
                 preferredConflictIds, realTimeSlider, autoCheckUpdate, showWatermark,
-                showCourseBorder, courseBorderColor
+                showCourseBorder, courseBorderColor,
+                autoUsername, autoPassword, isAutoLoginEnabled, isAutoNavigateEnabled
             ) {
                 sharedPrefs.edit()
                     .putInt("theme_mode", themeMode)
@@ -381,6 +341,10 @@ class MainActivity : ComponentActivity() {
                     .putString("bg_image_uri", bgImageUri)
                     .putFloat("bg_opacity", bgOpacity)
                     .putString("default_url", defaultBrowserUrl)
+                    .putString("auto_username", autoUsername)
+                    .putString("auto_password", autoPassword)
+                    .putBoolean("auto_login", isAutoLoginEnabled)
+                    .putBoolean("auto_navigate", isAutoNavigateEnabled)
                     .putInt("desktop_width", desktopWidth)
                     .putInt("desktop_height", desktopHeight)
                     .putBoolean("highlight_today", highlightToday)
@@ -556,8 +520,19 @@ class MainActivity : ComponentActivity() {
                                     showBgImage = showBgImage, onShowBgImageChange = { showBgImage = it },
                                     bgImageUri = bgImageUri, onBgImageUriChange = { bgImageUri = it },
                                     bgOpacity = bgOpacity, onBgOpacityChange = { bgOpacity = it },
-                                    savedBrowserUrl = defaultBrowserUrl, onBrowserSettingsSave = { url, w, h -> defaultBrowserUrl = url; desktopWidth = w; desktopHeight = h },
-                                    savedDesktopWidth = desktopWidth, savedDesktopHeight = desktopHeight,
+                                    savedBrowserUrl = defaultBrowserUrl,
+                                    savedDesktopWidth = desktopWidth,
+                                    savedDesktopHeight = desktopHeight,
+                                    onBrowserSettingsSave = { url, w, h, user, pass, autoLogin, autoNav ->
+                                        defaultBrowserUrl = url
+                                        desktopWidth = w
+                                        desktopHeight = h
+                                        autoUsername = user
+                                        autoPassword = pass
+                                        isAutoLoginEnabled = autoLogin
+                                        isAutoNavigateEnabled = autoNav
+                                    },
+                                    savedUsername = autoUsername, savedPassword = autoPassword, savedAutoLogin = isAutoLoginEnabled, savedAutoNavigate = isAutoNavigateEnabled,
                                     highlightToday = highlightToday, onHighlightTodayChange = { highlightToday = it },
                                     showTimeLine = showTimeLine, onShowTimeLineChange = { showTimeLine = it },
                                     showConflictWarning = showConflictWarning, onShowConflictWarningChange = { showConflictWarning = it },
@@ -607,7 +582,6 @@ class MainActivity : ComponentActivity() {
                                 })
                             }
 
-                            // 找到原来的 route = "Agreement" ，替换成支持参数的形式
                             composable(
                                 route = "Agreement?readOnly={readOnly}",
                                 arguments = listOf(navArgument("readOnly") {
@@ -739,6 +713,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 BrowserScreen(
                                     defaultUrl = defaultBrowserUrl, desktopWidth = desktopWidth, desktopHeight = desktopHeight,
+                                    autoUsername = autoUsername, autoPassword = autoPassword, autoLogin = isAutoLoginEnabled, autoNavigate = isAutoNavigateEnabled,
                                     onBackClick = { navController.popBackStack() },
                                     onImportCourses = { importedCourses ->
                                         // 使用协程强制回到主线程操作 UI
@@ -927,6 +902,9 @@ fun TimetableScreen(
     var showShareMenuDialog by remember { mutableStateOf(false) }
     var showImportMenuDialog by remember { mutableStateOf(false) }
 
+    var showAutoUpdateDialog by remember { mutableStateOf(false) }
+    val hasCredentials = !context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE).getString("auto_username", "").isNullOrEmpty() && !context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE).getString("auto_password", "").isNullOrEmpty()
+
     val blurRadius by animateDpAsState(targetValue = if (drawerState.targetValue == DrawerValue.Open) 16.dp else 0.dp, label = "blur")
 
     ModalNavigationDrawer(
@@ -941,6 +919,8 @@ fun TimetableScreen(
                 realTimeSlider = realTimeSlider,
                 timetables = timetables,
                 onCloseDrawer = { coroutineScope.launch { drawerState.close() } },
+                hasCredentials = hasCredentials,
+                onShowAutoUpdateDialog = { showAutoUpdateDialog = true },
                 onNavigateToAbout = onNavigateToAbout,
                 onNavigateToSettings = onNavigateToSettings,
                 onNavigateToEditTimeProfile = onNavigateToEditTimeProfile,
@@ -1096,7 +1076,7 @@ fun TimetableScreen(
             },
             dismissButton = {
                 TextButton(onClick = {
-                    // 调用已在 SettingsScreen 中定义过的顶级相册保存函数
+                    // 调用已在 SettingsScreen 中定义过的相册保存函数
                     saveImagesToGallery(context, coroutineScope, listOf(R.drawable.wechatcode, R.drawable.alpaycode))
                 }) { Text("保存到相册", color = MaterialTheme.colorScheme.primary) }
             }
@@ -1229,6 +1209,34 @@ fun TimetableScreen(
             }
         )
     }
+
+    if (showAutoUpdateDialog) {
+        AutoUpdateTimetableDialog(
+            onDismiss = { showAutoUpdateDialog = false },
+            onSuccess = { newCourses ->
+                showAutoUpdateDialog = false
+                val existingCourses = activeTimetable?.courses ?: emptyList()
+                val processedCourses = newCourses.mapIndexed { index, imported ->
+                    val matched = existingCourses.find { it.name == imported.name }
+                    val maxId = existingCourses.maxOfOrNull { it.id } ?: 0
+                    imported.copy(
+                        id = maxId + index + 1,
+                        bgColor = matched?.bgColor ?: imported.bgColor,
+                        textColor = matched?.textColor ?: imported.textColor
+                    )
+                }
+                val newWeek = processedCourses.flatMap { it.weekList }.maxOrNull() ?: activeTimetable?.totalWeeks ?: 20
+
+                // 修复点：不能直接 timetables = ...，改为调用回调函数保存
+                val newTimetables = timetables.map {
+                    if (it.id == activeTimetableId) it.copy(courses = processedCourses, totalWeeks = maxOf(it.totalWeeks, newWeek)) else it
+                }
+                onReorderTimetables(newTimetables) // 使用现成的回调来更新主数据！
+
+                Toast.makeText(context, "课表自动更新完毕！", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
 }
 
 @Composable
@@ -1288,7 +1296,6 @@ fun ManagementMenuContent(
         )
     }
 
-    // 去掉 remember 括号里的 currentWeek，防止它在拖动时强制干扰手指
     var sliderValue by remember { mutableFloatStateOf(currentWeek.toFloat()) }
     var isDragging by remember { mutableStateOf(false) } // 记录当前是否正在用手指拖拽
 
@@ -1492,283 +1499,6 @@ fun MenuIconBtn(icon: ImageVector, text: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun WeekTimetableGrid(
-    preferredConflictIds: Set<Int>,
-    onCourseClick: (List<Course>) -> Unit,
-    conflictColor: Long,
-    showCourseBorder: Boolean,
-    courseBorderColor: Long,
-    currentWeek: Int, allCourses: List<Course>, profileNodes: List<NodeTime>, termStartStr: String?,
-    highlightToday: Boolean, showTimeLine: Boolean, showConflictWarning: Boolean,
-) {
-    val scrollState = rememberScrollState()
-    val visibleNodes = profileNodes.filter { it.isVisible }
-    val todayDate = LocalDate.now()
-
-    val startLocalDate = try {
-        if (termStartStr != null) LocalDate.parse(termStartStr) else todayDate.minusDays((todayDate.dayOfWeek.value - 1).toLong())
-    } catch(e: Exception) { todayDate.minusDays((todayDate.dayOfWeek.value - 1).toLong()) }
-    val viewedMonday = startLocalDate.plusWeeks((currentWeek - 1).toLong())
-
-    var currentTime by remember { mutableStateOf(LocalTime.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            currentTime = LocalTime.now()
-            kotlinx.coroutines.delay(1000) // 每1秒更新一次时间轴
-        }
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.fillMaxWidth().height(45.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)), verticalAlignment = Alignment.CenterVertically) {
-            Spacer(modifier = Modifier.width(sideBarWidth))
-            Spacer(modifier = Modifier.width(1.dp))
-
-            Row(modifier = Modifier.weight(1f)) {
-                val days = listOf("一", "二", "三", "四", "五", "六", "日")
-                for (i in 0..6) {
-                    val currentDate = viewedMonday.plusDays(i.toLong())
-                    val isToday = currentDate.isEqual(todayDate)
-
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .padding(horizontal = 7.dp, vertical = 5.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .then(
-                                if (highlightToday && isToday) Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) else Modifier
-                            ),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy((-10).dp, Alignment.CenterVertically)
-                    ){
-                        Text(
-                            text = "周${days[i]}",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "${currentDate.monthValue}/${currentDate.dayOfMonth}",
-                            fontSize = 9.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                        )
-                    }
-                }
-            }
-        }
-
-        Box(modifier = Modifier.fillMaxWidth().verticalScroll(scrollState)) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                // 左侧时间栏
-                Column(modifier = Modifier.width(sideBarWidth).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
-                    for (node in visibleNodes) {
-                        Box(modifier = Modifier.height(timeSlotHeight).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                Text(text = node.start, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 10.sp)
-                                Text(text = node.label, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(vertical = 2.dp), lineHeight = 15.sp)
-                                Text(text = node.end, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 10.sp)
-                            }
-                            HorizontalDivider(modifier = Modifier.align(Alignment.BottomCenter), thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.width(1.dp).height(timeSlotHeight * visibleNodes.size).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
-
-                // 右侧课程网格区域
-                Box(modifier = Modifier.weight(1f)) {
-                    // 背景网格线
-                    Column {
-                        for (i in visibleNodes.indices) {
-                            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                            Spacer(modifier = Modifier.height(timeSlotHeight - 0.5.dp))
-                        }
-                    }
-                    // 课程块渲染
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        for (day in 1..7) {
-                            val currentDate = viewedMonday.plusDays((day - 1).toLong())
-                            val isToday = currentDate.isEqual(todayDate)
-
-                            Box(modifier = Modifier.weight(1f).height(timeSlotHeight * visibleNodes.size).then(
-                                // 高亮当天的网格列
-                                if (highlightToday && isToday) Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) else Modifier
-                            )) {
-                                val dailyCourses = allCourses.filter { it.dayOfWeek == day && it.weekList.contains(currentWeek) }
-
-                                // 将有时间交集（重叠）的课程聚类分到一个 cluster 里
-                                val clusters = mutableListOf<MutableList<Course>>()
-                                for (course in dailyCourses.sortedBy { it.startNode }) {
-                                    var added = false
-                                    for (cluster in clusters) {
-                                        if (cluster.any { it.startNode <= course.endNode && course.startNode <= it.endNode }) {
-                                            cluster.add(course)
-                                            added = true
-                                            break
-                                        }
-                                    }
-                                    if (!added) {
-                                        clusters.add(mutableListOf(course))
-                                    }
-                                }
-
-                                // 遍历冲突组，每组只渲染一门课
-                                clusters.forEach { cluster ->
-                                    // 从冲突组里挑出一门显示：优先选用户偏好的，如果没选过默认展示第一门
-                                    val displayCourse = cluster.firstOrNull { preferredConflictIds.contains(it.id) } ?: cluster.first()
-                                    val isConflicted = cluster.size > 1
-
-                                    val indexedVisibleNodes = profileNodes.withIndex().filter { it.value.isVisible }
-                                    val matchingSlots = indexedVisibleNodes.filter { it.index in (displayCourse.startNode - 1)..(displayCourse.endNode - 1) }
-
-                                    if (matchingSlots.isNotEmpty()) {
-                                        val startVisualIndex = indexedVisibleNodes.indexOf(matchingSlots.first())
-                                        val endVisualIndex = indexedVisibleNodes.indexOf(matchingSlots.last())
-
-                                        val topOffset = startVisualIndex * timeSlotHeight.value
-                                        val height = (endVisualIndex - startVisualIndex + 1) * timeSlotHeight.value
-
-                                        CourseBlock(
-                                            course = displayCourse,
-                                            topOffset = topOffset,
-                                            height = height,
-                                            isConflicted = isConflicted && showConflictWarning,
-                                            conflictColor = conflictColor,
-                                            showCourseBorder = showCourseBorder,
-                                            courseBorderColor = courseBorderColor,
-                                            onClick = { _ -> onCourseClick(cluster) } // 点击时传出整个冲突组
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 绘制横穿屏幕的当前时间轴
-            if (showTimeLine) {
-                val density = LocalDensity.current
-                val slotHeightPx = with(density) { timeSlotHeight.toPx() }
-                val yOffsetPx = calculateTimeLineOffset(currentTime, visibleNodes, slotHeightPx)
-                val totalHeightPx = visibleNodes.size * slotHeightPx
-
-                // 只有当时间偏移在有效可视范围内才显示时间轴
-                if (yOffsetPx in 0f..totalHeightPx) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .offset(y = with(density) { yOffsetPx.toDp() })
-                            .zIndex(10f)
-                    ) {
-                        val timeLineColor = Color(0xFFDB72FA)
-                        HorizontalDivider(thickness = 2.dp, color = timeLineColor.copy(alpha = 0.8f))
-
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .offset(x = 4.dp, y = (-16).dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = String.format("%02d:%02d", currentTime.hour, currentTime.minute),
-                                fontSize = 8.sp,
-                                color = timeLineColor,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Icon(
-                                imageVector = Icons.Default.ArrowDropDown, // 向下小箭头
-                                contentDescription = null,
-                                tint = timeLineColor,
-                                modifier = Modifier.size(15.dp).offset(x = (-3).dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun CourseBlock(
-    course: Course, topOffset: Float, height: Float, isConflicted: Boolean,
-    onClick: (Course) -> Unit, conflictColor: Long,
-    showCourseBorder: Boolean, courseBorderColor: Long
-) {
-    val density = LocalDensity.current
-    var isPressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(targetValue = if (isPressed) 0.85f else 1f, animationSpec = spring(dampingRatio = 0.4f, stiffness = Spring.StiffnessMediumLow), label = "bounce")
-
-    val maxNameLines = if (height >= timeSlotHeight.value * 2 - 10) 5 else 2
-    val teacherLineHeightDp = with(density) { 10.sp.toDp() }
-    val totalTeacherSpace = teacherLineHeightDp + 4.dp
-
-    Box(
-        modifier = Modifier
-            .offset(y = topOffset.dp)
-            .fillMaxWidth()
-            .height(height.dp)
-            .padding(2.dp)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .then(
-                if (showCourseBorder) Modifier.border(1.dp, Color(courseBorderColor), RoundedCornerShape(8.dp))
-                else Modifier
-            )
-            .clip(RoundedCornerShape(8.dp))
-            .pointerInput(key1 = course) {
-                detectTapGestures(
-                    onPress = { isPressed = true; tryAwaitRelease(); isPressed = false },
-                    onTap = { onClick(course) }
-                )
-            }
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(0.dp)  // 控制色块内缩距离
-                .clip(RoundedCornerShape( 8.dp))
-                .background(Color(course.bgColor))
-                .padding(horizontal = 4.dp, vertical = 2.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                Text(
-                    text = course.name,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(course.textColor),
-                    lineHeight = 12.sp,
-                    maxLines = maxNameLines,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    if (course.room.isNotEmpty()) {
-                        Text(text = "@${course.room}", fontSize = 9.sp, color = Color(course.textColor).copy(alpha = 0.7f), lineHeight = 10.sp, maxLines = Int.MAX_VALUE, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxSize().padding(bottom = totalTeacherSpace))
-                    }
-                    if (course.teacher.isNotEmpty()) {
-                        Text(text = course.teacher, fontSize = 9.sp, color = Color(course.textColor).copy(alpha = 0.7f), lineHeight = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
-                    }
-                }
-            }
-        }
-
-        // 冲突检测小三角标
-        if (isConflicted) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val triangleSize = 14.dp.toPx()
-                val cornerOffset = 3.dp.toPx()  // 向中心内移的偏移量
-                val path = Path().apply {
-                    moveTo(size.width - triangleSize - cornerOffset, cornerOffset)
-                    lineTo(size.width - cornerOffset, cornerOffset)
-                    lineTo(size.width - cornerOffset, triangleSize + cornerOffset)
-                    close()
-                }
-                drawPath(path = path, color = Color(conflictColor).copy(alpha = 0.85f))
-            }
-        }
-    }
-}
-
-@Composable
 fun CourseDetailContent(course: Course, profileNodes: List<NodeTime>, onEditClick: () -> Unit) {
     val dayString = listOf("一", "二", "三", "四", "五", "六", "日")[course.dayOfWeek - 1]
     val startNodeConfig = profileNodes.getOrNull(course.startNode - 1)
@@ -1780,7 +1510,6 @@ fun CourseDetailContent(course: Course, profileNodes: List<NodeTime>, onEditClic
 
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)) {
 
-        // 标题和编辑按钮同行显示
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1823,4 +1552,153 @@ fun DetailRow(icon: String, title: String, content: String) {
             Text(content, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
         }
     }
+}
+
+// 通信桥梁，接收 JS 传回来的 HTML 源码
+class JSBridge(val onResult: (String) -> Unit) {
+    @JavascriptInterface
+    fun onTimetableExtracted(html: String) { onResult(html) }
+}
+
+@Composable
+fun AutoUpdateTimetableDialog(
+    onDismiss: () -> Unit,
+    onSuccess: (List<Course>) -> Unit
+) {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
+    val defaultUrl = prefs.getString("default_url", "http://www.cqwu.edu.cn/redir/redirTmp.jsp") ?: ""
+    val autoUsername = prefs.getString("auto_username", "") ?: ""
+    val autoPassword = prefs.getString("auto_password", "") ?: ""
+
+    val logs = remember { mutableStateListOf<String>("初始化静默更新引擎...") }
+    val coroutineScope = rememberCoroutineScope()
+
+    // 控制网页是否可见的状态
+    var showWebView by remember { mutableStateOf(false) }
+
+    fun log(msg: String) {
+        coroutineScope.launch(Dispatchers.Main) {
+            logs.add(0, msg)
+            if (logs.size > 50) logs.removeAt(logs.lastIndex)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("正在自动更新课表", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // 根据是否展开网页，动态调整日志区域的高度
+                val logHeight by animateDpAsState(targetValue = if (showWebView) 100.dp else 250.dp, label = "logHeight")
+
+                // 显示 WebView 组件日志
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier
+                        .height(logHeight)
+                        .fillMaxWidth()
+                        .background(Color(0xFF121212), RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    items(logs.size) { index ->
+                        val msg = logs[index]
+                        val color = when {
+                            msg.contains("❌") -> Color(0xFFFF5252)
+                            msg.contains("✅") -> Color(0xFF69F0AE)
+                            else -> Color(0xFFB0BEC5)
+                        }
+                        Text(msg, color = color, fontSize = 11.sp, lineHeight = 16.sp, modifier = Modifier.padding(vertical = 2.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 根据状态动态调整 WebView 的高度和透明度
+                val webViewHeight by animateDpAsState(targetValue = if (showWebView) 350.dp else 1.dp, label = "wvHeight")
+                val webViewAlpha by animateFloatAsState(targetValue = if (showWebView) 1f else 0f, label = "wvAlpha")
+
+                // 隐藏或展示的 WebView
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(webViewHeight)
+                        .alpha(webViewAlpha)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White)
+                ) {
+                    androidx.compose.ui.viewinterop.AndroidView(
+                        factory = { ctx ->
+                            com.tencent.smtt.sdk.WebView(ctx).apply {
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.setSupportMultipleWindows(false)
+                                settings.setSupportZoom(true)   // 开启缩放方便查看
+                                settings.builtInZoomControls = true
+                                settings.displayZoomControls = false
+                                settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0"
+
+                                addJavascriptInterface(JSBridge { html ->
+                                    log("✅ [解析] 解析到课表，正在处理...")
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val courses = CqwlxyParser.parseCourseFromHtml(html)
+                                        withContext(Dispatchers.Main) {
+                                            if (courses.isNotEmpty()) {
+                                                log("✅ [成功] 完美解析出 ${courses.size} 门课程！")
+                                                kotlinx.coroutines.delay(600)
+                                                onSuccess(courses)
+                                            } else {
+                                                log("❌ [错误] 未解析到课表")
+                                            }
+                                        }
+                                    }
+                                }, "AndroidBridge")
+
+                                webViewClient = object : com.tencent.smtt.sdk.WebViewClient() {
+                                    override fun onPageFinished(view: com.tencent.smtt.sdk.WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        url?.let {
+                                            log("到达: ${it.take(35)}...")
+                                            // 原有的自动登录脚本
+                                            CqwlxyParser.getAutoFillScript(it, autoUsername, autoPassword, true)?.let { script ->
+                                                log("注入账号密码...")
+                                                view?.evaluateJavascript(script, null)
+                                            }
+                                            // 静默更新专用的路由跳转脚本
+                                            CqwlxyParser.getSilentAutoNavigateScript(it)?.let { script ->
+                                                log("执行跳转路由...")
+                                                view?.evaluateJavascript(script, null)
+                                            }
+                                            // 静默更新专用的提取课表脚本
+                                            CqwlxyParser.getSilentExtractScript(it)?.let { script ->
+                                                log("放置课表提取探针...")
+                                                view?.evaluateJavascript(script, null)
+                                            }
+                                        }
+                                    }
+                                }
+                                webChromeClient = object : com.tencent.smtt.sdk.WebChromeClient() {
+                                    override fun onConsoleMessage(msg: com.tencent.smtt.export.external.interfaces.ConsoleMessage?): Boolean {
+                                        if (msg?.message()?.startsWith("[JS]") == true) log("${msg.message()}")
+                                        return true
+                                    }
+                                }
+                                log("连接教务系统...")
+                                loadUrl(defaultUrl)
+                            }
+                        }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { showWebView = !showWebView }) {
+                Text(if (showWebView) "隐藏网页" else "查看网页", color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    )
 }

@@ -64,6 +64,9 @@ import android.provider.MediaStore
 import androidx.compose.material.icons.filled.Brightness3
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -191,9 +194,13 @@ fun SettingsScreen(
     realTimeSlider: Boolean,
     onRealTimeSliderChange: (Boolean) -> Unit,
     savedBrowserUrl: String,
-    onBrowserSettingsSave: (String, Int, Int) -> Unit,
+    onBrowserSettingsSave: (String, Int, Int, String, String, Boolean, Boolean) -> Unit,
     savedDesktopWidth: Int,
     savedDesktopHeight: Int,
+    savedUsername: String,
+    savedPassword: String,
+    savedAutoLogin: Boolean,
+    savedAutoNavigate: Boolean,
     autoCheckUpdate: Boolean,
     onAutoCheckUpdateChange: (Boolean) -> Unit,
     onManualCheckUpdate: () -> Unit,
@@ -227,6 +234,25 @@ fun SettingsScreen(
     var tempUrl by remember(savedBrowserUrl) { mutableStateOf(savedBrowserUrl) }
     var tempWidth by remember(savedDesktopWidth) { mutableStateOf(savedDesktopWidth.toString()) }
     var tempHeight by remember(savedDesktopHeight) { mutableStateOf(savedDesktopHeight.toString()) }
+    var tempUsername by remember(savedUsername) { mutableStateOf(savedUsername) }
+    var tempPassword by remember(savedPassword) { mutableStateOf(savedPassword) }
+    var tempAutoLogin by remember(savedAutoLogin) { mutableStateOf(savedAutoLogin) }
+    var tempAutoNavigate by remember(savedAutoNavigate) { mutableStateOf(savedAutoNavigate) }
+    val isModified = tempUrl != savedBrowserUrl ||
+            tempWidth != savedDesktopWidth.toString() ||
+            tempHeight != savedDesktopHeight.toString() ||
+            tempUsername != savedUsername ||
+            tempPassword != savedPassword ||
+            tempAutoLogin != savedAutoLogin ||
+            tempAutoNavigate != savedAutoNavigate
+
+    val isNotDefault = savedBrowserUrl != sysDefaultUrl ||
+            savedDesktopWidth != sysDefaultWidth ||
+            savedDesktopHeight != sysDefaultHeight ||
+            savedUsername.isNotEmpty() ||
+            savedPassword.isNotEmpty() ||
+            savedAutoLogin ||
+            savedAutoNavigate
 
     var showColorDialog by remember { mutableStateOf(false) }
     var showBorderColorDialog by remember { mutableStateOf(false) } // 控制框线颜色弹窗
@@ -248,14 +274,6 @@ fun SettingsScreen(
             onShowBgImageChange(true)
         }
     }
-
-    val isModified = tempUrl != savedBrowserUrl ||
-            tempWidth != savedDesktopWidth.toString() ||
-            tempHeight != savedDesktopHeight.toString()
-
-    val isNotDefault = savedBrowserUrl != sysDefaultUrl ||
-            savedDesktopWidth != sysDefaultWidth ||
-            savedDesktopHeight != sysDefaultHeight
 
     val buttonState = when {
         isModified -> "SAVE"
@@ -361,7 +379,19 @@ fun SettingsScreen(
         }
     ) { innerPadding ->
         val scrollState = rememberScrollState()
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).verticalScroll(scrollState)) {
+        val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .pointerInput(Unit) {
+                    // 把前缀删掉，直接写 detectTapGestures
+                    detectTapGestures(onTap = {
+                        focusManager.clearFocus()
+                    })
+                }
+                .verticalScroll(scrollState)
+        ) {
 
             // 应用设置
             Text(
@@ -609,7 +639,27 @@ fun SettingsScreen(
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.clickable {
-                                    onBrowserSettingsSave(tempUrl, tempWidth.toIntOrNull() ?: sysDefaultWidth, tempHeight.toIntOrNull() ?: sysDefaultHeight)
+                                    val accountChanged = tempUsername != savedUsername || tempPassword != savedPassword
+                                    var finalAutoLogin = tempAutoLogin
+                                    var finalAutoNavigate = tempAutoNavigate
+
+                                    if (accountChanged && tempUsername.isNotEmpty() && tempPassword.isNotEmpty()) {
+                                        finalAutoLogin = true
+                                        tempAutoLogin = true
+
+                                        finalAutoNavigate = true
+                                        tempAutoNavigate = true
+                                    }
+
+                                    onBrowserSettingsSave(
+                                        tempUrl,
+                                        tempWidth.toIntOrNull() ?: sysDefaultWidth,
+                                        tempHeight.toIntOrNull() ?: sysDefaultHeight,
+                                        tempUsername,
+                                        tempPassword,
+                                        finalAutoLogin,
+                                        finalAutoNavigate
+                                    )
                                 }
                             )
                         }
@@ -619,7 +669,7 @@ fun SettingsScreen(
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.clickable {
-                                    onBrowserSettingsSave(sysDefaultUrl, sysDefaultWidth, sysDefaultHeight)
+                                    onBrowserSettingsSave(sysDefaultUrl, sysDefaultWidth, sysDefaultHeight, "", "", false, false)
                                 }
                             )
                         }
@@ -657,9 +707,89 @@ fun SettingsScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
             Text(
                 "提示：在电脑模式下，页面将模拟设置的分辨率强制渲染。",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = tempUsername,
+                onValueChange = {
+                    tempUsername = it
+                    if (it.isEmpty()) {
+                        tempAutoLogin = false
+                        tempAutoNavigate = false
+                    }
+                },
+                label = { Text("教务系统账号 (选填)") },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = tempPassword,
+                onValueChange = {
+                    tempPassword = it
+                    if (it.isEmpty()) tempAutoLogin = false
+                },
+                label = { Text("教务系统密码 (选填)") },
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                singleLine = true
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("自动回车登录", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("填入密码后自动尝试执行登录", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = tempAutoLogin,
+                    onCheckedChange = {
+                        tempAutoLogin = it
+                        if (it) {
+                            tempAutoNavigate = true
+                        } else {
+                            tempAutoNavigate = false
+                        }
+                    },
+                    enabled = tempUsername.isNotEmpty() && tempPassword.isNotEmpty(),
+                    modifier = Modifier.scale(1.0f)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("登录后自动打开教务系统", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("需开启自动回车登录，自动跳转'教学管理系统'", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = tempAutoNavigate,
+                    onCheckedChange = { tempAutoNavigate = it },
+                    enabled = tempAutoLogin,
+                    modifier = Modifier.scale(1.0f)
+                )
+            }
+
+            Text(
+                "提示：\n如果留空，则不会自动填入留空的值。\n填完后记得点“浏览器设置”标题右边冒出来的保存按钮！",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)
@@ -669,14 +799,14 @@ fun SettingsScreen(
         }
     }
 
+    val isSystemDark = isSystemInDarkTheme()
+
     if (showThemeDialog) {
         ThemeSelectionDialog(
             currentTheme = themeMode,
             onDismiss = { showThemeDialog = false },
             onSave = { newTheme ->
                 onThemeChange(newTheme)
-                // 判断并联动课程边框开关
-                val isSystemDark = android.content.res.Configuration.UI_MODE_NIGHT_YES == (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK)
 
                 if (newTheme == 2 || (newTheme == 0 && isSystemDark)) {
                     onShowCourseBorderChange(false) // 切换为深色时关闭框线
@@ -1162,7 +1292,7 @@ fun ColorSelectionDialog(
                                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                                             selectedColor = colorVal
                                         }
-                                        .clip(RoundedCornerShape(12.dp)) // 圆角正方形
+                                        .clip(RoundedCornerShape(12.dp))
                                         .background(Color(colorVal)),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -1245,22 +1375,22 @@ fun ThemeSelectionDialog(
                 } else Rect.Zero
 
                 if (targetRelative != Rect.Zero) {
-                    val padding = 6.dp
-                    val paddingPx = with(density) { padding.toPx() }
                     val animSpec = spring<Float>(dampingRatio = 0.65f, stiffness = 400f)
 
-                    val animLeft by animateFloatAsState(targetRelative.left - paddingPx, animSpec, label = "X")
-                    val animTop by animateFloatAsState(targetRelative.top - paddingPx, animSpec, label = "Y")
-                    val animWidth by animateFloatAsState(targetRelative.width + paddingPx * 2, animSpec, label = "W")
-                    val animHeight by animateFloatAsState(targetRelative.height + paddingPx * 2, animSpec, label = "H")
+                    // 【修改点1】：去掉了 padding 偏移，让高亮框和选项完全同宽同高
+                    val animLeft by animateFloatAsState(targetRelative.left, animSpec, label = "X")
+                    val animTop by animateFloatAsState(targetRelative.top, animSpec, label = "Y")
+                    val animWidth by animateFloatAsState(targetRelative.width, animSpec, label = "W")
+                    val animHeight by animateFloatAsState(targetRelative.height, animSpec, label = "H")
 
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .offset { IntOffset(animLeft.roundToInt(), animTop.roundToInt()) }
                             .size(with(density) { animWidth.toDp() }, with(density) { animHeight.toDp() })
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
-                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
+                            // 【修改点2】：圆角统一改为 12.dp，与选项完全契合
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
                     )
                 }
 
@@ -1270,6 +1400,17 @@ fun ThemeSelectionDialog(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     themeOptions.forEach { (title, icon, index) ->
+                        val isSelected = selectedTheme == index
+
+                        // 【新增】：给底色的消失和出现加上渐变动画
+                        val itemBgColor by animateColorAsState(
+                            targetValue = if (isSelected) Color.Transparent
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                            // 动画持续 300 毫秒，刚好和选框移动的时间配合
+                            animationSpec = tween(300),
+                            label = "itemBgAnim"
+                        )
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1279,16 +1420,16 @@ fun ThemeSelectionDialog(
                                     selectedTheme = index
                                 }
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                // 【修改】：使用上面定义好的动画颜色
+                                .background(itemBgColor),
                             contentAlignment = Alignment.Center
                         ) {
-                            // 将图标和文字横向居中排列
+                            // ... 里面的 Row 和文字图标代码保持不变 ...
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = icon,
                                     contentDescription = title,
-                                    // 图标的颜色跟随选中状态变化
-                                    tint = if (selectedTheme == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
@@ -1296,8 +1437,7 @@ fun ThemeSelectionDialog(
                                     text = title,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
-                                    // 文字的颜色跟随选中状态变化
-                                    color = if (selectedTheme == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }

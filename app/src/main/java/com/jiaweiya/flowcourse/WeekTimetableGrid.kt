@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -110,6 +111,28 @@ fun WeekTimetableGrid(
         }
     }
 
+    // 预计算每日课程聚类，避免每次渲染重复过滤和冲突计算
+    val clusteredDailyCourses = remember(allCourses, currentWeek) {
+        (1..7).map { day ->
+            val daily = allCourses.filter { it.dayOfWeek == day && it.weekList.contains(currentWeek) }
+            val clusters = mutableListOf<MutableList<Course>>()
+            for (course in daily.sortedBy { it.startNode }) {
+                var added = false
+                for (cluster in clusters) {
+                    if (cluster.any { it.startNode <= course.endNode && course.startNode <= it.endNode }) {
+                        cluster.add(course)
+                        added = true
+                        break
+                    }
+                }
+                if (!added) {
+                    clusters.add(mutableListOf(course))
+                }
+            }
+            clusters
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         // 顶部星期栏
         Row(modifier = Modifier.fillMaxWidth().height(45.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)), verticalAlignment = Alignment.CenterVertically) {
@@ -176,22 +199,7 @@ fun WeekTimetableGrid(
                             Box(modifier = Modifier.weight(1f).height(timeSlotHeight * visibleNodes.size).then(
                                 if (highlightToday && isToday) Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) else Modifier
                             )) {
-                                val dailyCourses = allCourses.filter { it.dayOfWeek == day && it.weekList.contains(currentWeek) }
-
-                                val clusters = mutableListOf<MutableList<Course>>()
-                                for (course in dailyCourses.sortedBy { it.startNode }) {
-                                    var added = false
-                                    for (cluster in clusters) {
-                                        if (cluster.any { it.startNode <= course.endNode && course.startNode <= it.endNode }) {
-                                            cluster.add(course)
-                                            added = true
-                                            break
-                                        }
-                                    }
-                                    if (!added) {
-                                        clusters.add(mutableListOf(course))
-                                    }
-                                }
+                                val clusters = clusteredDailyCourses[day - 1]
 
                                 clusters.forEach { cluster ->
                                     val displayCourse = cluster.firstOrNull { preferredConflictIds.contains(it.id) } ?: cluster.first()
@@ -229,40 +237,13 @@ fun WeekTimetableGrid(
             if (showTimeLine) {
                 val density = LocalDensity.current
                 val slotHeightPx = with(density) { timeSlotHeight.toPx() }
-                val yOffsetPx = calculateTimeLineOffset(currentTime, visibleNodes, slotHeightPx)
-                val totalHeightPx = visibleNodes.size * slotHeightPx
 
-                if (yOffsetPx in 0f..totalHeightPx) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .offset(y = with(density) { yOffsetPx.toDp() })
-                            .zIndex(10f)
-                    ) {
-                        val timeLineColor = Color(0xFFDB72FA)
-                        HorizontalDivider(thickness = 2.dp, color = timeLineColor.copy(alpha = 0.8f))
-
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .offset(x = 4.dp, y = (-16).dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = String.format("%02d:%02d", currentTime.hour, currentTime.minute),
-                                fontSize = 8.sp,
-                                color = timeLineColor,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Icon(
-                                imageVector = Icons.Default.ArrowDropDown,
-                                contentDescription = null,
-                                tint = timeLineColor,
-                                modifier = Modifier.size(15.dp).offset(x = (-3).dp)
-                            )
-                        }
-                    }
-                }
+                TimeLineMarker(
+                    currentTimeProvider = { currentTime },
+                    visibleNodes = visibleNodes,
+                    slotHeightPx = slotHeightPx,
+                    density = density
+                )
             }
         }
     }
@@ -341,6 +322,50 @@ fun CourseBlock(
                     close()
                 }
                 drawPath(path = path, color = Color(conflictColor).copy(alpha = 0.85f))
+            }
+        }
+    }
+}
+
+@Composable
+fun TimeLineMarker(
+    currentTimeProvider: () -> LocalTime,
+    visibleNodes: List<NodeTime>,
+    slotHeightPx: Float,
+    density: Density
+) {
+    val currentTime = currentTimeProvider()
+    val yOffsetPx = calculateTimeLineOffset(currentTime, visibleNodes, slotHeightPx)
+    val totalHeightPx = visibleNodes.size * slotHeightPx
+
+    if (yOffsetPx in 0f..totalHeightPx) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset(y = with(density) { yOffsetPx.toDp() })
+                .zIndex(10f)
+        ) {
+            val timeLineColor = Color(0xFFDB72FA)
+            HorizontalDivider(thickness = 2.dp, color = timeLineColor.copy(alpha = 0.8f))
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = 4.dp, y = (-16).dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = String.format("%02d:%02d", currentTime.hour, currentTime.minute),
+                    fontSize = 8.sp,
+                    color = timeLineColor,
+                    fontWeight = FontWeight.Bold
+                )
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    tint = timeLineColor,
+                    modifier = Modifier.size(15.dp).offset(x = (-3).dp)
+                )
             }
         }
     }

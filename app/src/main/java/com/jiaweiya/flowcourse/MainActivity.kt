@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -102,7 +103,9 @@ import com.jiaweiya.flowcourse.widget.TimetableWidget
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
 
 // 数据结构定义
+@Immutable
 data class NodeTime(val label: String, val start: String, val end: String, val isVisible: Boolean = true)
+@Immutable
 data class TimeProfile(val id: Int, val name: String, val nodes: List<NodeTime>)
 
 // GitHub API 数据结构
@@ -131,6 +134,7 @@ val nodeTimes = listOf(
     NodeTime("12", "22:05", "22:50")
 )
 
+@Immutable
 data class TimetableData(
     val id: Int,
     val name: String,
@@ -140,6 +144,7 @@ data class TimetableData(
     val totalWeeks: Int = 20
 )
 
+@Immutable
 data class Course(
     val id: Int, val name: String, val room: String, val teacher: String,
     val dayOfWeek: Int, val startNode: Int, val endNode: Int, val weekList: List<Int>,
@@ -239,14 +244,44 @@ suspend fun checkAppUpdate(currentVersion: String, onResult: (GithubRelease?, Bo
 @Composable
 fun rememberBitmapFromUri(uriString: String?): ImageBitmap? {
     val context = LocalContext.current
+    val metrics = context.resources.displayMetrics
+    val screenWidth = metrics.widthPixels
+    val screenHeight = metrics.heightPixels
+
     var bitmap by remember(uriString) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(uriString) {
         if (uriString != null) {
             withContext(Dispatchers.IO) {
                 try {
                     val uri = Uri.parse(uriString)
+
+                    // 1. 仅获取图片尺寸
+                    val options = android.graphics.BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
                     context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                        android.graphics.BitmapFactory.decodeStream(inputStream)?.let {
+                        android.graphics.BitmapFactory.decodeStream(inputStream, null, options)
+                    }
+
+                    // 2. 根据屏幕尺寸计算缩放比 (SampleSize)
+                    val srcWidth = options.outWidth
+                    val srcHeight = options.outHeight
+                    var sampleSize = 1
+                    if (srcWidth > screenWidth || srcHeight > screenHeight) {
+                        val widthRatio = Math.round(srcWidth.toFloat() / screenWidth.toFloat())
+                        val heightRatio = Math.round(srcHeight.toFloat() / screenHeight.toFloat())
+                        sampleSize = Math.max(widthRatio, heightRatio)
+                    }
+
+                    // 3. 载入缩放后的轻量级图片
+                    options.apply {
+                        inJustDecodeBounds = false
+                        inSampleSize = sampleSize
+                        inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+                    }
+
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        android.graphics.BitmapFactory.decodeStream(inputStream, null, options)?.let {
                             bitmap = it.asImageBitmap()
                         }
                     }
@@ -335,30 +370,32 @@ class MainActivity : ComponentActivity() {
                 showCourseBorder, courseBorderColor,
                 autoUsername, autoPassword, isAutoLoginEnabled, isAutoNavigateEnabled
             ) {
-                sharedPrefs.edit()
-                    .putInt("theme_mode", themeMode)
-                    .putBoolean("show_bg_image", showBgImage)
-                    .putString("bg_image_uri", bgImageUri)
-                    .putFloat("bg_opacity", bgOpacity)
-                    .putString("default_url", defaultBrowserUrl)
-                    .putString("auto_username", autoUsername)
-                    .putString("auto_password", autoPassword)
-                    .putBoolean("auto_login", isAutoLoginEnabled)
-                    .putBoolean("auto_navigate", isAutoNavigateEnabled)
-                    .putInt("desktop_width", desktopWidth)
-                    .putInt("desktop_height", desktopHeight)
-                    .putBoolean("highlight_today", highlightToday)
-                    .putBoolean("show_time_line", showTimeLine)
-                    .putBoolean("show_conflict", showConflictWarning)
-                    .putLong("conflict_color", conflictColor)
-                    .putStringSet("preferred_conflict_ids", preferredConflictIds.map { it.toString() }.toSet())
-                    .putBoolean("real_time_slider", realTimeSlider)
-                    .putInt("parser_id", parserId)
-                    .putBoolean("auto_check_update", autoCheckUpdate)
-                    .putBoolean("show_watermark", showWatermark)
-                    .putBoolean("show_course_border", showCourseBorder)
-                    .putLong("course_border_color", courseBorderColor)
-                    .apply()
+                withContext(Dispatchers.IO) {
+                    sharedPrefs.edit()
+                        .putInt("theme_mode", themeMode)
+                        .putBoolean("show_bg_image", showBgImage)
+                        .putString("bg_image_uri", bgImageUri)
+                        .putFloat("bg_opacity", bgOpacity)
+                        .putString("default_url", defaultBrowserUrl)
+                        .putString("auto_username", autoUsername)
+                        .putString("auto_password", autoPassword)
+                        .putBoolean("auto_login", isAutoLoginEnabled)
+                        .putBoolean("auto_navigate", isAutoNavigateEnabled)
+                        .putInt("desktop_width", desktopWidth)
+                        .putInt("desktop_height", desktopHeight)
+                        .putBoolean("highlight_today", highlightToday)
+                        .putBoolean("show_time_line", showTimeLine)
+                        .putBoolean("show_conflict", showConflictWarning)
+                        .putLong("conflict_color", conflictColor)
+                        .putStringSet("preferred_conflict_ids", preferredConflictIds.map { it.toString() }.toSet())
+                        .putBoolean("real_time_slider", realTimeSlider)
+                        .putInt("parser_id", parserId)
+                        .putBoolean("auto_check_update", autoCheckUpdate)
+                        .putBoolean("show_watermark", showWatermark)
+                        .putBoolean("show_course_border", showCourseBorder)
+                        .putLong("course_border_color", courseBorderColor)
+                        .apply()
+                }
             }
 
             FlowCourseTheme(darkTheme = useDarkTheme) {
@@ -429,11 +466,15 @@ class MainActivity : ComponentActivity() {
                 val currentActualWeek = ((daysDiff / 7).toInt() + 1).coerceIn(1, activeTimetable?.totalWeeks ?: 20)
 
                 LaunchedEffect(timetables, activeTimetableId, timeProfiles) {
-                    sharedPrefs.edit()
-                        .putString("timetables_data", gson.toJson(timetables))
-                        .putInt("active_id", activeTimetableId)
-                        .putString("time_profiles_data", gson.toJson(timeProfiles))
-                        .apply()
+                    withContext(Dispatchers.IO) {
+                        val timetablesJson = gson.toJson(timetables)
+                        val profilesJson = gson.toJson(timeProfiles)
+                        sharedPrefs.edit()
+                            .putString("timetables_data", timetablesJson)
+                            .putInt("active_id", activeTimetableId)
+                            .putString("time_profiles_data", profilesJson)
+                            .apply()
+                    }
                     updateAppWidget(context)
                 }
 

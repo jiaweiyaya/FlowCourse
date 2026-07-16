@@ -4,14 +4,21 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.core.*
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -23,22 +30,29 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.Brightness3
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
@@ -61,9 +75,6 @@ import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import androidx.compose.material.icons.filled.Brightness3
-import androidx.compose.material.icons.filled.BrightnessAuto
-import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -71,6 +82,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.ui.graphics.graphicsLayer
 
 // 定义图标数据类
 data class AppIconData(val id: Int, val alias: String, val iconRes: Int, val name: String)
@@ -83,6 +95,13 @@ val appIconsList = listOf(
     AppIconData(6, "com.jiaweiya.flowcourse.Alias6", R.drawable.app_icon6, "待定")
 )
 
+// 全局静态常量颜色选项，避免重组时重复计算分配内存
+val colorOptions = listOf(
+    0xFF9E77ED, 0xFFFF0000, 0xFFE91E63, 0xFF9C27B0,
+    0xFF673AB7, 0xFF3F51B5, 0xFF03A9F4, 0xFF00BCD4,
+    0xFF009688, 0xFF4CAF50, 0xFF8BC34A, 0xFFCDDC39,
+    0xFFFFEB3B, 0xFFFFC107, 0xFFFF9800, 0xFFFF5722
+).map { it.toLong() }
 
 // 更换应用图标的方法
 fun changeAppIcon(context: Context, targetAlias: String) {
@@ -96,7 +115,6 @@ fun changeAppIcon(context: Context, targetAlias: String) {
         pm.setComponentEnabledSetting(
             ComponentName(context.packageName, iconData.alias),
             state,
-            // 使用 DONT_KILL_APP 防止应用直接崩溃闪退
             PackageManager.DONT_KILL_APP
         )
     }
@@ -112,7 +130,6 @@ fun saveQrCodeToGallery(context: Context, coroutineScope: CoroutineScope) {
                 val contentValues = ContentValues().apply {
                     put(MediaStore.Images.Media.DISPLAY_NAME, "FlowCourse_QQ_Group_${System.currentTimeMillis()}.png")
                     put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                    // 适配 Android 10 及以上：指定保存到 Pictures 文件夹下
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/FlowCourse")
                     }
@@ -168,6 +185,30 @@ fun saveImagesToGallery(context: Context, coroutineScope: CoroutineScope, imageR
     }
 }
 
+@Composable
+fun ScrollFadeIn(content: @Composable () -> Unit) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        visible = true
+    }
+
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(350),
+        label = "scroll_fade_alpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer { this.alpha = alpha }
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            content()
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -177,6 +218,9 @@ fun SettingsScreen(
     onParserIdChange: (Int) -> Unit,
     themeMode: Int,
     onThemeChange: (Int) -> Unit,
+    autoCheckUpdate: Boolean,
+    onAutoCheckUpdateChange: (Boolean) -> Unit,
+    onManualCheckUpdate: () -> Unit,
     showBgImage: Boolean,
     onShowBgImageChange: (Boolean) -> Unit,
     bgImageUri: String?,
@@ -193,19 +237,10 @@ fun SettingsScreen(
     onConflictColorChange: (Long) -> Unit,
     realTimeSlider: Boolean,
     onRealTimeSliderChange: (Boolean) -> Unit,
-    savedBrowserUrl: String,
-    onBrowserSettingsSave: (String, Int, Int, String, String, Boolean, Boolean) -> Unit,
-    savedDesktopWidth: Int,
-    savedDesktopHeight: Int,
-    savedUsername: String,
-    savedPassword: String,
-    savedAutoLogin: Boolean,
-    savedAutoNavigate: Boolean,
-    autoCheckUpdate: Boolean,
-    onAutoCheckUpdateChange: (Boolean) -> Unit,
-    onManualCheckUpdate: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToAgreement: () -> Unit,
+    onNavigateToWebViewSettings: () -> Unit,
+    onNavigateToAutoLoginSettings: () -> Unit,
     onBackClick: () -> Unit,
     showCourseBorder: Boolean,
     onShowCourseBorderChange: (Boolean) -> Unit,
@@ -214,10 +249,9 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
-    val currentAppVersion = remember { try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } catch (e: Exception) { "1.0.0" } }
     val coroutineScope = rememberCoroutineScope()
-    var showFeedbackChannelDialog by remember { mutableStateOf(false) } // 控制渠道选择弹窗
-    var showQQGroupDialog by remember { mutableStateOf(false) }         // 控制QQ二维码弹窗
+    var showFeedbackChannelDialog by remember { mutableStateOf(false) }
+    var showQQGroupDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showSponsorDialog by remember { mutableStateOf(false) }
 
@@ -227,43 +261,13 @@ fun SettingsScreen(
 
     val themeOptions = listOf("跟随系统", "浅色模式", "深色模式")
 
-    val sysDefaultUrl = "http://www.cqwu.edu.cn/redir/redirTmp.jsp"
-    val sysDefaultWidth = 1920
-    val sysDefaultHeight = 1080
+    var currentAppVersion by remember { mutableStateOf("获取中...") }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            currentAppVersion = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0" } catch (e: Exception) { "1.0.0" }
+        }
+    }
 
-    var tempUrl by remember(savedBrowserUrl) { mutableStateOf(savedBrowserUrl) }
-    var tempWidth by remember(savedDesktopWidth) { mutableStateOf(savedDesktopWidth.toString()) }
-    var tempHeight by remember(savedDesktopHeight) { mutableStateOf(savedDesktopHeight.toString()) }
-    var tempUsername by remember(savedUsername) { mutableStateOf(savedUsername) }
-    var tempPassword by remember(savedPassword) { mutableStateOf(savedPassword) }
-    var tempAutoLogin by remember(savedAutoLogin) { mutableStateOf(savedAutoLogin) }
-    var tempAutoNavigate by remember(savedAutoNavigate) { mutableStateOf(savedAutoNavigate) }
-    val isModified = tempUrl != savedBrowserUrl ||
-            tempWidth != savedDesktopWidth.toString() ||
-            tempHeight != savedDesktopHeight.toString() ||
-            tempUsername != savedUsername ||
-            tempPassword != savedPassword ||
-            tempAutoLogin != savedAutoLogin ||
-            tempAutoNavigate != savedAutoNavigate
-
-    val isNotDefault = savedBrowserUrl != sysDefaultUrl ||
-            savedDesktopWidth != sysDefaultWidth ||
-            savedDesktopHeight != sysDefaultHeight ||
-            savedUsername.isNotEmpty() ||
-            savedPassword.isNotEmpty() ||
-            savedAutoLogin ||
-            savedAutoNavigate
-
-    var showColorDialog by remember { mutableStateOf(false) }
-    var showBorderColorDialog by remember { mutableStateOf(false) } // 控制框线颜色弹窗
-    val colorOptions = listOf(
-        0xFF9E77ED, 0xFFFF0000, 0xFFE91E63, 0xFF9C27B0,
-        0xFF673AB7, 0xFF3F51B5, 0xFF03A9F4, 0xFF00BCD4,
-        0xFF009688, 0xFF4CAF50, 0xFF8BC34A, 0xFFCDDC39,
-        0xFFFFEB3B, 0xFFFFC107, 0xFFFF9800, 0xFFFF5722
-    ).map { it.toLong() }
-
-    // 图片选择器
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             context.contentResolver.takePersistableUriPermission(
@@ -275,10 +279,14 @@ fun SettingsScreen(
         }
     }
 
-    val buttonState = when {
-        isModified -> "SAVE"
-        isNotDefault -> "RESET"
-        else -> "NONE"
+    var showColorDialog by remember { mutableStateOf(false) }
+    var showBorderColorDialog by remember { mutableStateOf(false) }
+
+    // 使用 rememberSaveable，在从子页面返回时瞬间加载
+    var isTransitionFinished by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(450)
+        isTransitionFinished = true
     }
 
     Scaffold(
@@ -303,9 +311,7 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
-                        .clickable {
-                            showFeedbackChannelDialog = true
-                        }
+                        .clickable { showFeedbackChannelDialog = true }
                         .padding(6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -313,9 +319,7 @@ fun SettingsScreen(
                         painter = painterResource(id = R.drawable.issue),
                         contentDescription = "反馈问题",
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(60.dp)
-                            .clip(RoundedCornerShape(13.dp))
+                        modifier = Modifier.size(60.dp).clip(RoundedCornerShape(13.dp))
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
@@ -338,9 +342,7 @@ fun SettingsScreen(
                         painter = painterResource(id = R.drawable.user_agreement),
                         contentDescription = "用户服务协议",
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(60.dp)
-                            .clip(RoundedCornerShape(13.dp))
+                        modifier = Modifier.size(60.dp).clip(RoundedCornerShape(13.dp))
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
@@ -363,9 +365,7 @@ fun SettingsScreen(
                         painter = painterResource(id = R.drawable.jiaweiya_icon),
                         contentDescription = "关于此应用",
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(60.dp)
-                            .clip(RoundedCornerShape(13.dp))
+                        modifier = Modifier.size(60.dp).clip(RoundedCornerShape(13.dp))
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
@@ -378,440 +378,303 @@ fun SettingsScreen(
             }
         }
     ) { innerPadding ->
-        val scrollState = rememberScrollState()
         val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .pointerInput(Unit) {
-                    // 把前缀删掉，直接写 detectTapGestures
-                    detectTapGestures(onTap = {
-                        focusManager.clearFocus()
-                    })
-                }
-                .verticalScroll(scrollState)
-        ) {
 
-            // 应用设置
-            Text(
-                text = "应用设置",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showThemeDialog = true }
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("切换主题", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val themeIcons = listOf(
-                        Icons.Default.BrightnessAuto,
-                        Icons.Default.WbSunny,
-                        Icons.Default.Brightness3
-                    )
-                    Icon(
-                        imageVector = themeIcons[themeMode],
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(themeOptions[themeMode], fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-
-            AppIconSettingsRow()
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
-
-            Text("更新", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onManualCheckUpdate() }
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("立即检查更新", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-
-                Text(
-                    text = "当前版本 $currentAppVersion",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("每天自动检查更新", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Switch(checked = autoCheckUpdate, onCheckedChange = onAutoCheckUpdateChange, modifier = Modifier.scale(1.0f))
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
-
-            Text("课表解析设置", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showParserDialog = true }
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("课表解析脚本", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Text(currentParserName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
-
-            // 课表呈现设置
-            Text("课表呈现设置", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("显示水印", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Switch(
-                    checked = showWatermark,
-                    onCheckedChange = { checked ->
-                        onShowWatermarkChange(checked)
-                        // 当关闭水印时，弹出赞助弹窗
-                        if (!checked) {
-                            showSponsorDialog = true
+        Crossfade(
+            targetState = isTransitionFinished,
+            animationSpec = tween(durationMillis = 400),
+            label = "settings_fade"
+        ) { finished ->
+            if (!finished) {
+                Box(modifier = Modifier.fillMaxSize())
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { focusManager.clearFocus() })
                         }
-                    },
-                    modifier = Modifier.scale(1.0f)
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("高亮当天与时间线", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("高亮", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 4.dp))
-                    Switch(checked = highlightToday, onCheckedChange = onHighlightTodayChange, modifier = Modifier.scale(0.8f))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("时间线", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 4.dp))
-                    Switch(checked = showTimeLine, onCheckedChange = onShowTimeLineChange, modifier = Modifier.scale(0.8f))
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("显示课程冲突警告角标", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { showColorDialog = true },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(3.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color(conflictColor))
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Switch(checked = showConflictWarning, onCheckedChange = onShowConflictWarningChange, modifier = Modifier.scale(1.0f))
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("显示课程卡片框线", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { showBorderColorDialog = true },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(3.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color(courseBorderColor))
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Switch(checked = showCourseBorder, onCheckedChange = onShowCourseBorderChange, modifier = Modifier.scale(1.0f))
-                }
-            }
-
-            if (showBorderColorDialog) {
-                ColorSelectionDialog(
-                    currentColor = courseBorderColor,
-                    colorOptions = colorOptions,
-                    onDismiss = { showBorderColorDialog = false },
-                    onSave = {
-                        onCourseBorderColorChange(it)
-                        showBorderColorDialog = false
-                    }
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("周数滑块即时更新", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Switch(
-                    checked = realTimeSlider,
-                    onCheckedChange = onRealTimeSliderChange,
-                    modifier = Modifier.scale(1.0f)
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("课表背景图片", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                    Text(if (bgImageUri == null) "未选择" else "已选择", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "选择图片",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .clickable { imagePickerLauncher.launch(arrayOf("image/*")) }
-                            .padding(end = 16.dp)
-                    )
-                    Switch(
-                        checked = showBgImage,
-                        onCheckedChange = onShowBgImageChange,
-                        enabled = bgImageUri != null
-                    )
-                }
-            }
-
-            if (showBgImage && bgImageUri != null) {
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Text("背景透明度", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(
-                        value = bgOpacity,
-                        onValueChange = onBgOpacityChange,
-                        valueRange = 0.1f..1.0f
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
-
-            // 浏览器设置
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).padding(top = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("浏览器设置", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-
-                AnimatedContent(
-                    targetState = buttonState,
-                    transitionSpec = { fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200)) },
-                    label = "browser_settings_btn"
-                ) { state ->
-                    when (state) {
-                        "SAVE" -> {
+                ) {
+                    item {
+                        ScrollFadeIn {
                             Text(
-                                "保存",
+                                text = "应用设置",
                                 fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable {
-                                    val accountChanged = tempUsername != savedUsername || tempPassword != savedPassword
-                                    var finalAutoLogin = tempAutoLogin
-                                    var finalAutoNavigate = tempAutoNavigate
+                                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+                            )
 
-                                    if (accountChanged && tempUsername.isNotEmpty() && tempPassword.isNotEmpty()) {
-                                        finalAutoLogin = true
-                                        tempAutoLogin = true
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showThemeDialog = true }
+                                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("切换主题", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val themeIcons = listOf(
+                                        Icons.Default.BrightnessAuto,
+                                        Icons.Default.WbSunny,
+                                        Icons.Default.Brightness3
+                                    )
+                                    Icon(
+                                        imageVector = themeIcons[themeMode],
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(themeOptions[themeMode], fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
 
-                                        finalAutoNavigate = true
-                                        tempAutoNavigate = true
+                            AppIconSettingsRow()
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                    }
+
+                    item {
+                        ScrollFadeIn {
+                            Text(
+                                text = "更新",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onManualCheckUpdate() }
+                                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("立即检查更新", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Text(
+                                    text = "当前版本 $currentAppVersion",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("每天自动检查更新", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Switch(checked = autoCheckUpdate, onCheckedChange = onAutoCheckUpdateChange, modifier = Modifier.scale(1.0f))
+                            }
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                    }
+
+                    item {
+                        ScrollFadeIn {
+                            Text("课表解析设置", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showParserDialog = true }
+                                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("课表解析脚本", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Text(currentParserName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                    }
+
+                    item {
+                        ScrollFadeIn {
+                            Text("课表呈现设置", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("显示水印", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Switch(
+                                    checked = showWatermark,
+                                    onCheckedChange = { checked ->
+                                        onShowWatermarkChange(checked)
+                                        if (!checked) {
+                                            showSponsorDialog = true
+                                        }
+                                    },
+                                    modifier = Modifier.scale(1.0f)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("高亮当天与时间线", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("高亮", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 4.dp))
+                                    Switch(checked = highlightToday, onCheckedChange = onHighlightTodayChange, modifier = Modifier.scale(0.8f))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("时间线", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 4.dp))
+                                    Switch(checked = showTimeLine, onCheckedChange = onShowTimeLineChange, modifier = Modifier.scale(0.8f))
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("显示课程冲突警告角标", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { showColorDialog = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(3.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(Color(conflictColor))
+                                        )
                                     }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Switch(checked = showConflictWarning, onCheckedChange = onShowConflictWarningChange, modifier = Modifier.scale(1.0f))
+                                }
+                            }
 
-                                    onBrowserSettingsSave(
-                                        tempUrl,
-                                        tempWidth.toIntOrNull() ?: sysDefaultWidth,
-                                        tempHeight.toIntOrNull() ?: sysDefaultHeight,
-                                        tempUsername,
-                                        tempPassword,
-                                        finalAutoLogin,
-                                        finalAutoNavigate
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("显示课程卡片框线", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { showBorderColorDialog = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(3.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(Color(courseBorderColor))
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Switch(checked = showCourseBorder, onCheckedChange = onShowCourseBorderChange, modifier = Modifier.scale(1.0f))
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("周数滑块即时更新", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Switch(
+                                    checked = realTimeSlider,
+                                    onCheckedChange = onRealTimeSliderChange,
+                                    modifier = Modifier.scale(1.0f)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("课表背景图片", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                    Text(if (bgImageUri == null) "未选择" else "已选择", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "选择图片",
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier
+                                            .clickable { imagePickerLauncher.launch(arrayOf("image/*")) }
+                                            .padding(end = 16.dp)
+                                    )
+                                    Switch(
+                                        checked = showBgImage,
+                                        onCheckedChange = onShowBgImageChange,
+                                        enabled = bgImageUri != null
                                     )
                                 }
-                            )
-                        }
-                        "RESET" -> {
-                            Text(
-                                "恢复默认",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.clickable {
-                                    onBrowserSettingsSave(sysDefaultUrl, sysDefaultWidth, sysDefaultHeight, "", "", false, false)
+                            }
+
+                            if (showBgImage && bgImageUri != null) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                    Text("背景透明度", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Slider(
+                                        value = bgOpacity,
+                                        onValueChange = onBgOpacityChange,
+                                        valueRange = 0.1f..1.0f
+                                    )
                                 }
+                            }
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                    }
+
+                    item {
+                        ScrollFadeIn {
+                            Text(
+                                text = "浏览器与自动登录设置",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
                             )
+
+                            SettingsRow(
+                                title = "WebView配置",
+                                subtitle = "配置默认教务网址、自适应分辨率以及默认加载模式",
+                                onClick = onNavigateToWebViewSettings
+                            )
+
+                            SettingsRow(
+                                title = "自动登录配置",
+                                subtitle = "管理学号与密码的自动填充、回车登录以及自动跳转功能",
+                                onClick = onNavigateToAutoLoginSettings
+                            )
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
                         }
-                        else -> { Spacer(modifier = Modifier.width(50.dp)) }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(120.dp))
                     }
                 }
             }
-
-            OutlinedTextField(
-                value = tempUrl,
-                onValueChange = { tempUrl = it },
-                label = { Text("默认浏览器网址") },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                singleLine = true
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = tempWidth,
-                    onValueChange = { tempWidth = it },
-                    label = { Text("电脑版宽度") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = tempHeight,
-                    onValueChange = { tempHeight = it },
-                    label = { Text("电脑版高度") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                "提示：在电脑模式下，页面将模拟设置的分辨率强制渲染。",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = tempUsername,
-                onValueChange = {
-                    tempUsername = it
-                    if (it.isEmpty()) {
-                        tempAutoLogin = false
-                        tempAutoNavigate = false
-                    }
-                },
-                label = { Text("教务系统账号 (选填)") },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                singleLine = true
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = tempPassword,
-                onValueChange = {
-                    tempPassword = it
-                    if (it.isEmpty()) tempAutoLogin = false
-                },
-                label = { Text("教务系统密码 (选填)") },
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                singleLine = true
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("自动回车登录", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                    Text("填入密码后自动尝试执行登录", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(
-                    checked = tempAutoLogin,
-                    onCheckedChange = {
-                        tempAutoLogin = it
-                        if (it) {
-                            tempAutoNavigate = true
-                        } else {
-                            tempAutoNavigate = false
-                        }
-                    },
-                    enabled = tempUsername.isNotEmpty() && tempPassword.isNotEmpty(),
-                    modifier = Modifier.scale(1.0f)
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("登录后自动打开教务系统", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                    Text("需开启自动回车登录，自动跳转'教学管理系统'", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(
-                    checked = tempAutoNavigate,
-                    onCheckedChange = { tempAutoNavigate = it },
-                    enabled = tempAutoLogin,
-                    modifier = Modifier.scale(1.0f)
-                )
-            }
-
-            Text(
-                "提示：\n如果留空，则不会自动填入留空的值。\n填完后记得点“浏览器设置”标题右边冒出来的保存按钮！",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-
-            Spacer(modifier = Modifier.height(120.dp))
         }
     }
 
@@ -825,9 +688,9 @@ fun SettingsScreen(
                 onThemeChange(newTheme)
 
                 if (newTheme == 2 || (newTheme == 0 && isSystemDark)) {
-                    onShowCourseBorderChange(false) // 切换为深色时关闭框线
+                    onShowCourseBorderChange(false)
                 } else if (newTheme == 1 || (newTheme == 0 && !isSystemDark)) {
-                    onShowCourseBorderChange(true)  // 切换为浅色时打开框线
+                    onShowCourseBorderChange(true)
                 }
 
                 showThemeDialog = false
@@ -835,7 +698,6 @@ fun SettingsScreen(
         )
     }
 
-    // 解析脚本选择弹窗
     if (showParserDialog) {
         AlertDialog(
             onDismissRequest = { showParserDialog = false },
@@ -860,7 +722,6 @@ fun SettingsScreen(
                     }
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // 点击后触发 showFeedbackChannelDialog
                     Text(
                         text = "找不到你的学校的解析脚本？点我联系Jiaweiya",
                         fontSize = 12.sp,
@@ -894,7 +755,18 @@ fun SettingsScreen(
         )
     }
 
-    // 反馈渠道选择弹窗
+    if (showBorderColorDialog) {
+        ColorSelectionDialog(
+            currentColor = courseBorderColor,
+            colorOptions = colorOptions,
+            onDismiss = { showBorderColorDialog = false },
+            onSave = {
+                onCourseBorderColorChange(it)
+                showBorderColorDialog = false
+            }
+        )
+    }
+
     if (showFeedbackChannelDialog) {
         AlertDialog(
             onDismissRequest = { showFeedbackChannelDialog = false },
@@ -930,7 +802,6 @@ fun SettingsScreen(
         )
     }
 
-    // QQ群二维码弹窗
     if (showQQGroupDialog) {
         AlertDialog(
             onDismissRequest = { showQQGroupDialog = false },
@@ -943,10 +814,10 @@ fun SettingsScreen(
                     Image(
                         painter = painterResource(id = R.drawable.qq_qrcode1),
                         contentDescription = "QQ群二维码",
-                        contentScale = ContentScale.Fit, // Fit 确保图片等比例完整显示
+                        contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 280.dp) // 限制最大高度
+                            .heightIn(max = 280.dp)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
@@ -970,7 +841,6 @@ fun SettingsScreen(
         )
     }
 
-    // 新增：求赞助弹窗
     if (showSponsorDialog) {
         AlertDialog(
             onDismissRequest = { showSponsorDialog = false },
@@ -1017,13 +887,17 @@ fun AppIconSettingsRow() {
     val context = LocalContext.current
     val sharedPrefs = context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
 
-    // 从本地读取当前使用的图标 ID，默认是 1
-    var currentIconId by remember { mutableIntStateOf(sharedPrefs.getInt("app_icon_id", 1)) }
+    var currentIconId by remember { mutableIntStateOf(1) }
     var showDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            currentIconId = sharedPrefs.getInt("app_icon_id", 1)
+        }
+    }
 
     val currentIconData = appIconsList.find { it.id == currentIconId } ?: appIconsList.first()
 
-    // 与"切换主题"样式一致的行入口
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1048,7 +922,6 @@ fun AppIconSettingsRow() {
         }
     }
 
-    // 弹窗部分
     if (showDialog) {
         IconSelectionDialog(
             currentId = currentIconId,
@@ -1070,9 +943,8 @@ fun IconSelectionDialog(currentId: Int, onDismiss: () -> Unit, onSave: (AppIconD
     val itemBoundsInRoot = remember { mutableStateMapOf<Int, Rect>() }
     var boxBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
     val density = LocalDensity.current
-    val context = LocalContext.current // 获取上下文用于重启应用
+    val context = LocalContext.current
 
-    // 控制二次确认弹窗的状态
     var showConfirmDialog by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -1194,7 +1066,6 @@ fun IconSelectionDialog(currentId: Int, onDismiss: () -> Unit, onSave: (AppIconD
         }
     )
 
-    // 二次确认弹窗及其重启逻辑
     if (showConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showConfirmDialog = false },
@@ -1204,15 +1075,13 @@ fun IconSelectionDialog(currentId: Int, onDismiss: () -> Unit, onSave: (AppIconD
                 Button(
                     onClick = {
                         showConfirmDialog = false
-                        // 触发外层的保存修改操作(更换底层别名)
                         onSave(appIconsList.first { it.id == selectedId })
 
-                        // 自动重启应用代码
                         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
                         if (intent != null) {
                             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                             context.startActivity(intent)
-                            Runtime.getRuntime().exit(0) // 结束当前进程彻底重启
+                            Runtime.getRuntime().exit(0)
                         }
                     },
                     shape = RoundedCornerShape(12.dp),
@@ -1252,7 +1121,6 @@ fun ColorSelectionDialog(
                     .padding(vertical = 8.dp)
                     .onGloballyPositioned { coords -> boxBoundsInRoot = coords.boundsInRoot() }
             ) {
-                // 背景高亮选框动画
                 val targetItemRoot = itemBoundsInRoot[selectedColor] ?: Rect.Zero
                 val targetRelative = if (targetItemRoot != Rect.Zero && boxBoundsInRoot != Rect.Zero) {
                     targetItemRoot.translate(-boxBoundsInRoot.left, -boxBoundsInRoot.top)
@@ -1278,7 +1146,6 @@ fun ColorSelectionDialog(
                     )
                 }
 
-                // 色块渲染 (一行4个)
                 Column(
                     modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally),
                     verticalArrangement = Arrangement.spacedBy(24.dp)
@@ -1311,13 +1178,12 @@ fun ColorSelectionDialog(
         confirmButton = {
             val hasChanged = selectedColor != currentColor
 
-            // 使用滑块的默认颜色：MaterialTheme.colorScheme.primary
             val animatedContainerColor by animateColorAsState(
                 targetValue = if (hasChanged) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 animationSpec = tween(300), label = "btnBgAnim"
             )
             val animatedTextColor by animateColorAsState(
-                targetValue = if (hasChanged) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                targetValue = if (hasChanged) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 animationSpec = tween(300), label = "btnTxtAnim"
             )
 
@@ -1370,7 +1236,6 @@ fun ThemeSelectionDialog(
                     .padding(vertical = 8.dp)
                     .onGloballyPositioned { coords -> boxBoundsInRoot = coords.boundsInRoot() }
             ) {
-                // 背景高亮选框动画
                 val targetItemRoot = itemBoundsInRoot[selectedTheme] ?: Rect.Zero
                 val targetRelative = if (targetItemRoot != Rect.Zero && boxBoundsInRoot != Rect.Zero) {
                     targetItemRoot.translate(-boxBoundsInRoot.left, -boxBoundsInRoot.top)
@@ -1379,7 +1244,6 @@ fun ThemeSelectionDialog(
                 if (targetRelative != Rect.Zero) {
                     val animSpec = spring<Float>(dampingRatio = 0.65f, stiffness = 400f)
 
-                    // 【修改点1】：去掉了 padding 偏移，让高亮框和选项完全同宽同高
                     val animLeft by animateFloatAsState(targetRelative.left, animSpec, label = "X")
                     val animTop by animateFloatAsState(targetRelative.top, animSpec, label = "Y")
                     val animWidth by animateFloatAsState(targetRelative.width, animSpec, label = "W")
@@ -1390,13 +1254,11 @@ fun ThemeSelectionDialog(
                             .align(Alignment.TopStart)
                             .offset { IntOffset(animLeft.roundToInt(), animTop.roundToInt()) }
                             .size(with(density) { animWidth.toDp() }, with(density) { animHeight.toDp() })
-                            // 【修改点2】：圆角统一改为 12.dp，与选项完全契合
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
                             .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
                     )
                 }
 
-                // 主题选项渲染
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1404,11 +1266,9 @@ fun ThemeSelectionDialog(
                     themeOptions.forEach { (title, icon, index) ->
                         val isSelected = selectedTheme == index
 
-                        // 【新增】：给底色的消失和出现加上渐变动画
                         val itemBgColor by animateColorAsState(
                             targetValue = if (isSelected) Color.Transparent
                             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                            // 动画持续 300 毫秒，刚好和选框移动的时间配合
                             animationSpec = tween(300),
                             label = "itemBgAnim"
                         )
@@ -1422,11 +1282,9 @@ fun ThemeSelectionDialog(
                                     selectedTheme = index
                                 }
                                 .clip(RoundedCornerShape(12.dp))
-                                // 【修改】：使用上面定义好的动画颜色
                                 .background(itemBgColor),
                             contentAlignment = Alignment.Center
                         ) {
-                            // ... 里面的 Row 和文字图标代码保持不变 ...
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = icon,
@@ -1450,13 +1308,12 @@ fun ThemeSelectionDialog(
         confirmButton = {
             val hasChanged = selectedTheme != currentTheme
 
-            // 按钮颜色联动动画
             val animatedContainerColor by animateColorAsState(
                 targetValue = if (hasChanged) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 animationSpec = tween(300), label = "btnBgAnim"
             )
             val animatedTextColor by animateColorAsState(
-                targetValue = if (hasChanged) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                targetValue = if (hasChanged) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 animationSpec = tween(300), label = "btnTxtAnim"
             )
 
@@ -1480,4 +1337,421 @@ fun ThemeSelectionDialog(
             }
         }
     )
+}
+
+@Composable
+fun SettingsRow(
+    title: String,
+    subtitle: String? = null,
+    onClick: (() -> Unit)? = null,
+    trailingContent: @Composable (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+            if (subtitle != null) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (trailingContent != null) {
+            Spacer(modifier = Modifier.width(16.dp))
+            trailingContent()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WebViewSettingsScreen(
+    savedUrl: String,
+    savedWidth: Int,
+    savedHeight: Int,
+    savedDesktopMode: Boolean,
+    onValueChange: (String, Int, Int, Boolean) -> Unit,
+    onBackClick: () -> Unit
+) {
+    val sysDefaultUrl = "http://www.cqwu.edu.cn/redir/redirTmp.jsp"
+    val sysDefaultWidth = 1920
+    val sysDefaultHeight = 1080
+    val sysDefaultDesktop = false
+
+    var showModeDialog by remember { mutableStateOf(false) }
+
+    val isNotDefault = savedUrl != sysDefaultUrl ||
+            savedWidth != sysDefaultWidth ||
+            savedHeight != sysDefaultHeight ||
+            savedDesktopMode != sysDefaultDesktop
+
+    Scaffold(
+        contentWindowInsets = WindowInsets(0.dp),
+        topBar = {
+            TopAppBar(
+                windowInsets = WindowInsets(0.dp),
+                title = { Text("WebView配置", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    AnimatedVisibility(
+                        visible = isNotDefault,
+                        enter = fadeIn() + expandHorizontally(),
+                        exit = fadeOut() + shrinkHorizontally()
+                    ) {
+                        TextButton(onClick = {
+                            onValueChange(sysDefaultUrl, sysDefaultWidth, sysDefaultHeight, sysDefaultDesktop)
+                        }) {
+                            Text("恢复默认", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            OutlinedTextField(
+                value = savedUrl,
+                onValueChange = { onValueChange(it, savedWidth, savedHeight, savedDesktopMode) },
+                label = { Text("默认浏览器网址") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = savedWidth.toString(),
+                    onValueChange = {
+                        val widthVal = it.toIntOrNull() ?: sysDefaultWidth
+                        onValueChange(savedUrl, widthVal, savedHeight, savedDesktopMode)
+                    },
+                    label = { Text("电脑版宽度") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = savedHeight.toString(),
+                    onValueChange = {
+                        val heightVal = it.toIntOrNull() ?: sysDefaultHeight
+                        onValueChange(savedUrl, savedWidth, heightVal, savedDesktopMode)
+                    },
+                    label = { Text("电脑版高度") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+            }
+
+            Text(
+                "提示：在电脑模式下，页面将模拟设置的分辨率强制渲染。",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showModeDialog = true }
+                    .padding(vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("默认加载模式", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = if (savedDesktopMode) Icons.Default.Computer else Icons.Default.Phone,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (savedDesktopMode) "电脑版" else "手机版",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+
+    if (showModeDialog) {
+        DesktopModeSelectionDialog(
+            currentMode = savedDesktopMode,
+            onDismiss = { showModeDialog = false },
+            onSave = { isDesktop ->
+                onValueChange(savedUrl, savedWidth, savedHeight, isDesktop)
+                showModeDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun DesktopModeSelectionDialog(
+    currentMode: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (Boolean) -> Unit
+) {
+    var selectedIndex by remember { mutableIntStateOf(if (currentMode) 1 else 0) }
+    val itemBoundsInRoot = remember { mutableStateMapOf<Int, Rect>() }
+    var boxBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
+    val density = LocalDensity.current
+
+    val modeOptions = listOf(
+        Triple("手机版", Icons.Default.Phone, 0),
+        Triple("电脑版", Icons.Default.Computer, 1)
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择模式", fontWeight = FontWeight.Bold) },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .onGloballyPositioned { coords -> boxBoundsInRoot = coords.boundsInRoot() }
+            ) {
+                val targetItemRoot = itemBoundsInRoot[selectedIndex] ?: Rect.Zero
+                val targetRelative = if (targetItemRoot != Rect.Zero && boxBoundsInRoot != Rect.Zero) {
+                    targetItemRoot.translate(-boxBoundsInRoot.left, -boxBoundsInRoot.top)
+                } else Rect.Zero
+
+                if (targetRelative != Rect.Zero) {
+                    val animSpec = spring<Float>(dampingRatio = 0.65f, stiffness = 400f)
+                    val animLeft by animateFloatAsState(targetRelative.left, animSpec, label = "X")
+                    val animTop by animateFloatAsState(targetRelative.top, animSpec, label = "Y")
+                    val animWidth by animateFloatAsState(targetRelative.width, animSpec, label = "W")
+                    val animHeight by animateFloatAsState(targetRelative.height, animSpec, label = "H")
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset { IntOffset(animLeft.roundToInt(), animTop.roundToInt()) }
+                            .size(with(density) { animWidth.toDp() }, with(density) { animHeight.toDp() })
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    modeOptions.forEach { (title, icon, index) ->
+                        val isSelected = selectedIndex == index
+                        val itemBgColor by animateColorAsState(
+                            targetValue = if (isSelected) Color.Transparent
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                            animationSpec = tween(300),
+                            label = "itemBgAnim"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .onGloballyPositioned { coords -> itemBoundsInRoot[index] = coords.boundsInRoot() }
+                                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                                    selectedIndex = index
+                                }
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(itemBgColor),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = title,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = title,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val hasChanged = (selectedIndex == 1) != currentMode
+            val animatedContainerColor by animateColorAsState(
+                targetValue = if (hasChanged) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                animationSpec = tween(300), label = "btnBgAnim"
+            )
+            val animatedTextColor by animateColorAsState(
+                targetValue = if (hasChanged) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                animationSpec = tween(300), label = "btnTxtAnim"
+            )
+
+            Button(
+                onClick = { onSave(selectedIndex == 1) },
+                enabled = hasChanged,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = animatedContainerColor,
+                    contentColor = animatedTextColor,
+                    disabledContainerColor = animatedContainerColor,
+                    disabledContentColor = animatedTextColor
+                )
+            ) {
+                Text(text = "保存并应用")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AutoLoginSettingsScreen(
+    savedUsername: String,
+    savedPassword: String,
+    savedAutoLogin: Boolean,
+    savedAutoNavigate: Boolean,
+    onValueChange: (String, String, Boolean, Boolean) -> Unit,
+    onBackClick: () -> Unit
+) {
+    val sysDefaultUser = ""
+    val sysDefaultPass = ""
+    val sysDefaultLogin = false
+    val sysDefaultNav = false
+
+    val isNotDefault = savedUsername != sysDefaultUser ||
+            savedPassword != sysDefaultPass ||
+            savedAutoLogin != sysDefaultLogin ||
+            savedAutoNavigate != sysDefaultNav
+
+    Scaffold(
+        contentWindowInsets = WindowInsets(0.dp),
+        topBar = {
+            TopAppBar(
+                windowInsets = WindowInsets(0.dp),
+                title = { Text("自动登录配置", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    AnimatedVisibility(
+                        visible = isNotDefault,
+                        enter = fadeIn() + expandHorizontally(),
+                        exit = fadeOut() + shrinkHorizontally()
+                    ) {
+                        TextButton(onClick = {
+                            onValueChange(sysDefaultUser, sysDefaultPass, sysDefaultLogin, sysDefaultNav)
+                        }) {
+                            Text("恢复默认", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            OutlinedTextField(
+                value = savedUsername,
+                onValueChange = {
+                    val loginVal = if (it.isEmpty()) false else savedAutoLogin
+                    val navVal = if (it.isEmpty()) false else savedAutoNavigate
+                    onValueChange(it, savedPassword, loginVal, navVal)
+                },
+                label = { Text("教务系统账号") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = savedPassword,
+                onValueChange = {
+                    val loginVal = if (it.isEmpty()) false else savedAutoLogin
+                    onValueChange(savedUsername, it, loginVal, savedAutoNavigate)
+                },
+                label = { Text("教务系统密码") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("自动回车登录", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("填入密码后自动尝试执行登录", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = savedAutoLogin,
+                    onCheckedChange = {
+                        val navVal = if (it) savedAutoNavigate else false
+                        onValueChange(savedUsername, savedPassword, it, navVal)
+                    },
+                    enabled = savedUsername.isNotEmpty() && savedPassword.isNotEmpty(),
+                    modifier = Modifier.scale(1.0f)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("登录后自动打开教务系统", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("需开启自动回车登录，自动跳转至“教学管理系统”", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = savedAutoNavigate,
+                    onCheckedChange = { onValueChange(savedUsername, savedPassword, savedAutoLogin, it) },
+                    enabled = savedAutoLogin,
+                    modifier = Modifier.scale(1.0f)
+                )
+            }
+        }
+    }
 }

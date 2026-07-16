@@ -67,6 +67,7 @@ fun BrowserScreen(
     autoPassword: String,
     autoLogin: Boolean,
     autoNavigate: Boolean,
+    defaultDesktopMode: Boolean,
     onBackClick: () -> Unit,
     onImportCourses: (List<Course>) -> Unit
 ) {
@@ -74,7 +75,7 @@ fun BrowserScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var inputText by remember { mutableStateOf(defaultUrl) }
-    var isDesktopMode by remember { mutableStateOf(false) }
+    var isDesktopMode by remember { mutableStateOf(defaultDesktopMode) }
     var showDebugPanel by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     val debugLogs = remember { mutableStateListOf<String>() }

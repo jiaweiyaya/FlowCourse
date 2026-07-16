@@ -103,14 +103,6 @@ fun WeekTimetableGrid(
     } catch(e: Exception) { todayDate.minusDays((todayDate.dayOfWeek.value - 1).toLong()) }
     val viewedMonday = startLocalDate.plusWeeks((currentWeek - 1).toLong())
 
-    var currentTime by remember { mutableStateOf(LocalTime.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            currentTime = LocalTime.now()
-            kotlinx.coroutines.delay(1000)
-        }
-    }
-
     // 预计算每日课程聚类，避免每次渲染重复过滤和冲突计算
     val clusteredDailyCourses = remember(allCourses, currentWeek) {
         (1..7).map { day ->
@@ -239,7 +231,6 @@ fun WeekTimetableGrid(
                 val slotHeightPx = with(density) { timeSlotHeight.toPx() }
 
                 TimeLineMarker(
-                    currentTimeProvider = { currentTime },
                     visibleNodes = visibleNodes,
                     slotHeightPx = slotHeightPx,
                     density = density
@@ -257,12 +248,15 @@ fun CourseBlock(
 ) {
     val density = LocalDensity.current
     var isPressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(targetValue = if (isPressed) 0.85f else 1f, animationSpec = spring(dampingRatio = 0.4f, stiffness = Spring.StiffnessMediumLow), label = "bounce")
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.85f else 1f,
+        animationSpec = spring(dampingRatio = 0.4f, stiffness = Spring.StiffnessMediumLow),
+        label = "bounce"
+    )
 
     val maxNameLines = if (height >= timeSlotHeight.value * 2 - 10) 5 else 2
-    val teacherLineHeightDp = with(density) { 10.sp.toDp() }
-    val totalTeacherSpace = teacherLineHeightDp + 4.dp
 
+    // 扁平化后的单层 Box 容器
     Box(
         modifier = Modifier
             .offset(y = topOffset.dp)
@@ -275,38 +269,51 @@ fun CourseBlock(
                 else Modifier
             )
             .clip(RoundedCornerShape(8.dp))
+            .background(Color(course.bgColor))
             .pointerInput(key1 = course) {
                 detectTapGestures(
                     onPress = { isPressed = true; tryAwaitRelease(); isPressed = false },
                     onTap = { onClick(course) }
                 )
             }
+            .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(0.dp)
-                .clip(RoundedCornerShape( 8.dp))
-                .background(Color(course.bgColor))
-                .padding(horizontal = 4.dp, vertical = 2.dp)
+        // 内部仅保留一个 Column，通过 SpaceBetween 自适应将课名和老师/教室推至两端
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                Text(
-                    text = course.name,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(course.textColor),
-                    lineHeight = 12.sp,
-                    maxLines = maxNameLines,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    if (course.room.isNotEmpty()) {
-                        Text(text = "@${course.room}", fontSize = 9.sp, color = Color(course.textColor).copy(alpha = 0.7f), lineHeight = 10.sp, maxLines = Int.MAX_VALUE, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxSize().padding(bottom = totalTeacherSpace))
-                    }
-                    if (course.teacher.isNotEmpty()) {
-                        Text(text = course.teacher, fontSize = 9.sp, color = Color(course.textColor).copy(alpha = 0.7f), lineHeight = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp))
-                    }
+            Text(
+                text = course.name,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(course.textColor),
+                lineHeight = 12.sp,
+                maxLines = maxNameLines,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            // 教室和教师信息直接垂直排布，省去一层中间 Box 包裹
+            Column {
+                if (course.room.isNotEmpty()) {
+                    Text(
+                        text = "@${course.room}",
+                        fontSize = 9.sp,
+                        color = Color(course.textColor).copy(alpha = 0.7f),
+                        lineHeight = 10.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (course.teacher.isNotEmpty()) {
+                    Text(
+                        text = course.teacher,
+                        fontSize = 9.sp,
+                        color = Color(course.textColor).copy(alpha = 0.7f),
+                        lineHeight = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -329,12 +336,19 @@ fun CourseBlock(
 
 @Composable
 fun TimeLineMarker(
-    currentTimeProvider: () -> LocalTime,
     visibleNodes: List<NodeTime>,
     slotHeightPx: Float,
     density: Density
 ) {
-    val currentTime = currentTimeProvider()
+    // 状态和定时器只属于这个轻量的小红线，每秒更新只会重组这几行像素，不波及任何卡片
+    var currentTime by remember { mutableStateOf(LocalTime.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            currentTime = LocalTime.now()
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
     val yOffsetPx = calculateTimeLineOffset(currentTime, visibleNodes, slotHeightPx)
     val totalHeightPx = visibleNodes.size * slotHeightPx
 

@@ -334,6 +334,15 @@ class MainActivity : ComponentActivity() {
             var preferredConflictIds by remember { mutableStateOf(sharedPrefs.getStringSet("preferred_conflict_ids", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()) }
 
             val isSystemDark = isSystemInDarkTheme()
+
+            val isAppDark = themeMode == 2 || (themeMode == 0 && isSystemDark)
+            val defaultColor = if (isAppDark) 0xFFD0BCFF else 0xFF9E77ED
+
+            var themeColor by remember {
+                mutableLongStateOf(
+                    sharedPrefs.getLong("theme_color", defaultColor)
+                )
+            }
             val useDarkTheme = when (themeMode) {
                 1 -> false
                 2 -> true
@@ -363,7 +372,8 @@ class MainActivity : ComponentActivity() {
                 bgImageUri, bgOpacity, highlightToday, showTimeLine, showConflictWarning, conflictColor,
                 preferredConflictIds, realTimeSlider, autoCheckUpdate, showWatermark,
                 showCourseBorder, courseBorderColor,
-                autoUsername, autoPassword, isAutoLoginEnabled, isAutoNavigateEnabled, defaultDesktopMode
+                autoUsername, autoPassword, isAutoLoginEnabled, isAutoNavigateEnabled, defaultDesktopMode,
+                themeColor
             ) {
                 withContext(Dispatchers.IO) {
                     sharedPrefs.edit()
@@ -390,11 +400,13 @@ class MainActivity : ComponentActivity() {
                         .putBoolean("show_course_border", showCourseBorder)
                         .putLong("course_border_color", courseBorderColor)
                         .putBoolean("default_desktop_mode", defaultDesktopMode)
+                        .putLong("theme_color", themeColor)
                         .apply()
                 }
             }
 
-            FlowCourseTheme(darkTheme = useDarkTheme) {
+            val resolvedThemeColor = resolveThemeColor(themeColor, useDarkTheme)
+            FlowCourseTheme(darkTheme = useDarkTheme, themeColor = resolvedThemeColor) {
                 val navController = rememberNavController()
                 val coroutineScope = rememberCoroutineScope()
 
@@ -534,6 +546,8 @@ class MainActivity : ComponentActivity() {
                                     onParserIdChange = { id -> parserId = id },
                                     themeMode = themeMode,
                                     onThemeChange = { theme -> themeMode = theme },
+                                    themeColor = resolvedThemeColor,
+                                    onThemeColorChange = { color -> themeColor = color },
                                     autoCheckUpdate = autoCheckUpdate,
                                     onAutoCheckUpdateChange = { checked -> autoCheckUpdate = checked },
                                     onManualCheckUpdate = {

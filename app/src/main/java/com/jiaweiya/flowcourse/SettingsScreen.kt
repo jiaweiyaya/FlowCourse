@@ -99,13 +99,34 @@ val appIconsList = listOf(
     AppIconData(6, "com.jiaweiya.flowcourse.Alias6", R.drawable.app_icon6, "待定")
 )
 
-// 全局静态常量颜色选项，避免重组时重复计算分配内存
+// 全局静态常量颜色选项，避免重组时重复计算分配内存（浅色模式使用）
 val colorOptions = listOf(
     0xFF9E77ED, 0xFFFF0000, 0xFFE91E63, 0xFF9C27B0,
     0xFF673AB7, 0xFF3F51B5, 0xFF03A9F4, 0xFF00BCD4,
     0xFF009688, 0xFF4CAF50, 0xFF8BC34A, 0xFFCDDC39,
     0xFFFFEB3B, 0xFFFFC107, 0xFFFF9800, 0xFFFF5722
 ).map { it.toLong() }
+
+// 深色模式用配色选项
+val darkColorOptions = listOf(
+    0xFFD0BCFF, 0xFFF2B8B5, 0xFFFFB1C8, 0xFFD8B4F8,
+    0xFFC5BAFF, 0xFF9ECAFF, 0xFF9EEDFF, 0xFFA7F1FF,
+    0xFF80CBC4, 0xFFA5D6A7, 0xFFC5E1A5, 0xFFE6EE9C,
+    0xFFFFF59D, 0xFFFFE082, 0xFFFFCC80, 0xFFFFAB91
+).map { it.toLong() }
+
+// 根据当前界面的明暗模式自动转换颜色值辅助函数
+fun resolveThemeColor(color: Long, isDark: Boolean): Long {
+    val lightIndex = colorOptions.indexOf(color)
+    if (isDark && lightIndex != -1) {
+        return darkColorOptions[lightIndex]
+    }
+    val darkIndex = darkColorOptions.indexOf(color)
+    if (!isDark && darkIndex != -1) {
+        return colorOptions[darkIndex]
+    }
+    return color
+}
 
 // 更换应用图标的方法
 fun changeAppIcon(context: Context, targetAlias: String) {
@@ -222,6 +243,8 @@ fun SettingsScreen(
     onParserIdChange: (Int) -> Unit,
     themeMode: Int,
     onThemeChange: (Int) -> Unit,
+    themeColor: Long,
+    onThemeColorChange: (Long) -> Unit,
     autoCheckUpdate: Boolean,
     onAutoCheckUpdateChange: (Boolean) -> Unit,
     onManualCheckUpdate: () -> Unit,
@@ -257,6 +280,7 @@ fun SettingsScreen(
     var showFeedbackChannelDialog by remember { mutableStateOf(false) }
     var showQQGroupDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showThemeColorDialog by remember { mutableStateOf(false) }
     var showSponsorDialog by remember { mutableStateOf(false) }
 
     var showParserDialog by remember { mutableStateOf(false) }
@@ -362,6 +386,33 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
                             )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showThemeColorDialog = true }
+                                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("切换主题色", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable { showThemeColorDialog = true },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(3.dp)
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(Color(themeColor))
+                                    )
+                                }
+                            }
 
                             Row(
                                 modifier = Modifier
@@ -649,7 +700,27 @@ fun SettingsScreen(
         }
     }
 
+    // 判断当前设置是否使应用处于深色模式
     val isSystemDark = isSystemInDarkTheme()
+    val isAppDark = when (themeMode) {
+        1 -> false
+        2 -> true
+        else -> isSystemDark
+    }
+
+    val activeColorOptions = if (isAppDark) darkColorOptions else colorOptions
+
+    if (showThemeColorDialog) {
+        ColorSelectionDialog(
+            currentColor = themeColor,
+            colorOptions = activeColorOptions,
+            onDismiss = { showThemeColorDialog = false },
+            onSave = {
+                onThemeColorChange(it)
+                showThemeColorDialog = false
+            }
+        )
+    }
 
     if (showThemeDialog) {
         ThemeSelectionDialog(

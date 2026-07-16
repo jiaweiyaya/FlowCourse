@@ -256,7 +256,10 @@ fun CourseBlock(
 
     val maxNameLines = if (height >= timeSlotHeight.value * 2 - 10) 5 else 2
 
-    // 扁平化后的单层 Box 容器
+    // 🌟 还原老代码中用于防止地点和老师名字重叠的动态边距计算
+    val teacherLineHeightDp = with(density) { 10.sp.toDp() }
+    val totalTeacherSpace = teacherLineHeightDp + 4.dp
+
     Box(
         modifier = Modifier
             .offset(y = topOffset.dp)
@@ -278,11 +281,12 @@ fun CourseBlock(
             }
             .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
-        // 内部仅保留一个 Column，通过 SpaceBetween 自适应将课名和老师/教室推至两端
+        // 🌟 核心修复：完全还原老代码的排版机制，保证与老代码表现 100% 一致
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
+            // 1. 课程名称（紧靠顶部）
             Text(
                 text = course.name,
                 fontSize = 11.sp,
@@ -293,18 +297,24 @@ fun CourseBlock(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // 教室和教师信息直接垂直排布，省去一层中间 Box 包裹
-            Column {
+            // 2. 占满剩余高度的 Box 容器
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                // 上课地点：无限行数换行，但预留底部空间不遮挡老师名字
                 if (course.room.isNotEmpty()) {
                     Text(
                         text = "@${course.room}",
                         fontSize = 9.sp,
                         color = Color(course.textColor).copy(alpha = 0.7f),
                         lineHeight = 10.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        maxLines = Int.MAX_VALUE, // 🌟 还原无限制行数
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = totalTeacherSpace) // 🌟 还原防重叠的底部边距
                     )
                 }
+
+                // 教师名字：死死固定在最底部水平居中的位置
                 if (course.teacher.isNotEmpty()) {
                     Text(
                         text = course.teacher,
@@ -312,7 +322,10 @@ fun CourseBlock(
                         color = Color(course.textColor).copy(alpha = 0.7f),
                         lineHeight = 10.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter) // 🌟 还原最底端居中对齐
+                            .padding(bottom = 2.dp)
                     )
                 }
             }

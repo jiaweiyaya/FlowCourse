@@ -83,6 +83,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.focus.onFocusChanged
 
 // 定义图标数据类
 data class AppIconData(val id: Int, val alias: String, val iconRes: Int, val name: String)
@@ -1390,6 +1391,9 @@ fun WebViewSettingsScreen(
             savedHeight != sysDefaultHeight ||
             savedDesktopMode != sysDefaultDesktop
 
+    // 获取当前页面的 focusManager
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
@@ -1417,82 +1421,91 @@ fun WebViewSettingsScreen(
             )
         }
     ) { innerPadding ->
-        Column(
+        // 使用 Box 替代原有的 Column 根布局，并添加点击手势捕捉
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { focusManager.clearFocus() })
+                }
         ) {
-            OutlinedTextField(
-                value = savedUrl,
-                onValueChange = { onValueChange(it, savedWidth, savedHeight, savedDesktopMode) },
-                label = { Text("默认浏览器网址") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = savedWidth.toString(),
-                    onValueChange = {
-                        val widthVal = it.toIntOrNull() ?: sysDefaultWidth
-                        onValueChange(savedUrl, widthVal, savedHeight, savedDesktopMode)
-                    },
-                    label = { Text("电脑版宽度") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = savedHeight.toString(),
-                    onValueChange = {
-                        val heightVal = it.toIntOrNull() ?: sysDefaultHeight
-                        onValueChange(savedUrl, savedWidth, heightVal, savedDesktopMode)
-                    },
-                    label = { Text("电脑版高度") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
-                )
-            }
-
-            Text(
-                "提示：在电脑模式下，页面将模拟设置的分辨率强制渲染。",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-            Row(
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showModeDialog = true }
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text("默认加载模式", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                OutlinedTextField(
+                    value = savedUrl,
+                    onValueChange = { onValueChange(it, savedWidth, savedHeight, savedDesktopMode) },
+                    label = { Text("默认浏览器网址") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = if (savedDesktopMode) Icons.Default.Computer else Icons.Default.Phone,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    OutlinedTextField(
+                        value = savedWidth.toString(),
+                        onValueChange = {
+                            val widthVal = it.toIntOrNull() ?: sysDefaultWidth
+                            onValueChange(savedUrl, widthVal, savedHeight, savedDesktopMode)
+                        },
+                        label = { Text("电脑版宽度") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
                     )
-                    Text(
-                        text = if (savedDesktopMode) "电脑版" else "手机版",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    OutlinedTextField(
+                        value = savedHeight.toString(),
+                        onValueChange = {
+                            val heightVal = it.toIntOrNull() ?: sysDefaultHeight
+                            onValueChange(savedUrl, savedWidth, heightVal, savedDesktopMode)
+                        },
+                        label = { Text("电脑版高度") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
                     )
+                }
+
+                Text(
+                    "提示：在电脑模式下，页面将模拟设置的分辨率强制渲染。",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showModeDialog = true }
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("默认加载模式", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (savedDesktopMode) Icons.Default.Computer else Icons.Default.Phone,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = if (savedDesktopMode) "电脑版" else "手机版",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -1656,6 +1669,12 @@ fun AutoLoginSettingsScreen(
             savedAutoLogin != sysDefaultLogin ||
             savedAutoNavigate != sysDefaultNav
 
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
+    // 用于记录两个输入框上一次的焦点状态，从而准确判断是否为“退出输入”（即从 hasFocus == true 变为 false）
+    var usernameHasFocus by remember { mutableStateOf(false) }
+    var passwordHasFocus by remember { mutableStateOf(false) }
+
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
@@ -1683,74 +1702,111 @@ fun AutoLoginSettingsScreen(
             )
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { focusManager.clearFocus() })
+                }
         ) {
-            OutlinedTextField(
-                value = savedUsername,
-                onValueChange = {
-                    val loginVal = if (it.isEmpty()) false else savedAutoLogin
-                    val navVal = if (it.isEmpty()) false else savedAutoNavigate
-                    onValueChange(it, savedPassword, loginVal, navVal)
-                },
-                label = { Text("教务系统账号") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
-            OutlinedTextField(
-                value = savedPassword,
-                onValueChange = {
-                    val loginVal = if (it.isEmpty()) false else savedAutoLogin
-                    onValueChange(savedUsername, it, loginVal, savedAutoNavigate)
-                },
-                label = { Text("教务系统密码") },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("自动回车登录", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                    Text("填入密码后自动尝试执行登录", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(
-                    checked = savedAutoLogin,
-                    onCheckedChange = {
-                        val navVal = if (it) savedAutoNavigate else false
-                        onValueChange(savedUsername, savedPassword, it, navVal)
+                // 账号输入框
+                OutlinedTextField(
+                    value = savedUsername,
+                    onValueChange = {
+                        val loginVal = if (it.isEmpty()) false else savedAutoLogin
+                        val navVal = if (it.isEmpty()) false else savedAutoNavigate
+                        onValueChange(it, savedPassword, loginVal, navVal)
                     },
-                    enabled = savedUsername.isNotEmpty() && savedPassword.isNotEmpty(),
-                    modifier = Modifier.scale(1.0f)
+                    label = { Text("教务系统账号") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            // 当从有焦点变为无焦点（即退出输入）
+                            if (usernameHasFocus && !focusState.isFocused) {
+                                if (savedUsername.isNotEmpty() && savedPassword.isNotEmpty()) {
+                                    onValueChange(savedUsername, savedPassword, true, true)
+                                }
+                            }
+                            usernameHasFocus = focusState.isFocused
+                        },
+                    singleLine = true
                 )
-            }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("登录后自动打开教务系统", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                    Text("需开启自动回车登录，自动跳转至“教学管理系统”", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(
-                    checked = savedAutoNavigate,
-                    onCheckedChange = { onValueChange(savedUsername, savedPassword, savedAutoLogin, it) },
-                    enabled = savedAutoLogin,
-                    modifier = Modifier.scale(1.0f)
+                // 密码输入框
+                OutlinedTextField(
+                    value = savedPassword,
+                    onValueChange = {
+                        val loginVal = if (it.isEmpty()) false else savedAutoLogin
+                        onValueChange(savedUsername, it, loginVal, savedAutoNavigate)
+                    },
+                    label = { Text("教务系统密码") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            // 当从有焦点变为无焦点（即退出输入）
+                            if (passwordHasFocus && !focusState.isFocused) {
+                                if (savedUsername.isNotEmpty() && savedPassword.isNotEmpty()) {
+                                    onValueChange(savedUsername, savedPassword, true, true)
+                                }
+                            }
+                            passwordHasFocus = focusState.isFocused
+                        },
+                    singleLine = true
                 )
+
+                // 自动回车登录开关
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("自动回车登录", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Text("填入密码后自动尝试执行登录", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = savedAutoLogin,
+                        onCheckedChange = { checked ->
+                            // 如果开关被打开，且账号和密码都不为空，则自动打开下面的开关
+                            val navVal = if (checked) {
+                                if (savedUsername.isNotEmpty() && savedPassword.isNotEmpty()) true else savedAutoNavigate
+                            } else {
+                                false
+                            }
+                            onValueChange(savedUsername, savedPassword, checked, navVal)
+                        },
+                        enabled = savedUsername.isNotEmpty() && savedPassword.isNotEmpty(),
+                        modifier = Modifier.scale(1.0f)
+                    )
+                }
+
+                // 登录后自动打开教务系统开关
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("登录后自动打开教务系统", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Text("需开启自动回车登录，自动跳转至“教学管理系统”", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = savedAutoNavigate,
+                        onCheckedChange = { onValueChange(savedUsername, savedPassword, savedAutoLogin, it) },
+                        enabled = savedAutoLogin,
+                        modifier = Modifier.scale(1.0f)
+                    )
+                }
             }
         }
     }

@@ -411,7 +411,23 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("切换主题", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Text(themeOptions[themeMode], fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val themeIcons = listOf(
+                        Icons.Default.BrightnessAuto,
+                        Icons.Default.WbSunny,
+                        Icons.Default.Brightness3
+                    )
+                    Icon(
+                        imageVector = themeIcons[themeMode],
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(themeOptions[themeMode], fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
 
             AppIconSettingsRow()
@@ -1007,42 +1023,28 @@ fun AppIconSettingsRow() {
 
     val currentIconData = appIconsList.find { it.id == currentIconId } ?: appIconsList.first()
 
-    // 外层入口卡片
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)
+    // 与"切换主题"样式一致的行入口
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { showDialog = true }
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        Text("更换应用图标", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Image(
                 painter = painterResource(id = currentIconData.iconRes),
                 contentDescription = null,
-                modifier = Modifier.size(50.dp).clip(RoundedCornerShape(12.dp))
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(RoundedCornerShape(5.dp))
             )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "更换应用图标",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = currentIconData.name,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            Button(
-                onClick = { showDialog = true },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9E77ED)),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("更换", fontWeight = FontWeight.Bold, color = Color.White)
-            }
+            Text(currentIconData.name, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 

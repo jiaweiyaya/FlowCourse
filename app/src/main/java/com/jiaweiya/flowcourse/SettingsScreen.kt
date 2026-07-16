@@ -84,6 +84,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 
 // 定义图标数据类
 data class AppIconData(val id: Int, val alias: String, val iconRes: Int, val name: String)
@@ -309,73 +312,26 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { showFeedbackChannelDialog = true }
-                        .padding(6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.issue),
-                        contentDescription = "反馈问题",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(60.dp).clip(RoundedCornerShape(13.dp))
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "反馈问题",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        textAlign = TextAlign.Center
-                    )
-                }
+                // 1. 反馈问题按钮
+                FloatingScaleButton(
+                    imageRes = R.drawable.issue,
+                    text = "反馈问题",
+                    onClick = { showFeedbackChannelDialog = true }
+                )
 
-                Column(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onNavigateToAgreement() }
-                        .padding(6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.user_agreement),
-                        contentDescription = "用户服务协议",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(60.dp).clip(RoundedCornerShape(13.dp))
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "用户协议",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        textAlign = TextAlign.Center
-                    )
-                }
+                // 2. 用户协议按钮
+                FloatingScaleButton(
+                    imageRes = R.drawable.user_agreement,
+                    text = "用户协议",
+                    onClick = { onNavigateToAgreement() }
+                )
 
-                Column(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onNavigateToAbout() }
-                        .padding(6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.jiaweiya_icon),
-                        contentDescription = "关于此应用",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(60.dp).clip(RoundedCornerShape(13.dp))
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "关于此应用",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+                // 3. 关于此应用按钮
+                FloatingScaleButton(
+                    imageRes = R.drawable.jiaweiya_icon,
+                    text = "关于此应用",
+                    onClick = { onNavigateToAbout() }
+                )
             }
         }
     ) { innerPadding ->
@@ -400,7 +356,7 @@ fun SettingsScreen(
                     item {
                         ScrollFadeIn {
                             Text(
-                                text = "应用设置",
+                                text = "主题与外观",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
@@ -444,7 +400,7 @@ fun SettingsScreen(
                     item {
                         ScrollFadeIn {
                             Text(
-                                text = "更新",
+                                text = "应用更新",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
@@ -472,7 +428,7 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("每天自动检查更新", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Text("每天首次打开时检查更新", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                                 Switch(checked = autoCheckUpdate, onCheckedChange = onAutoCheckUpdateChange, modifier = Modifier.scale(1.0f))
                             }
 
@@ -482,7 +438,7 @@ fun SettingsScreen(
 
                     item {
                         ScrollFadeIn {
-                            Text("课表解析设置", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
+                            Text("课表解析", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -500,7 +456,7 @@ fun SettingsScreen(
 
                     item {
                         ScrollFadeIn {
-                            Text("课表呈现设置", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
+                            Text("课表呈现", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
 
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -648,7 +604,7 @@ fun SettingsScreen(
                     item {
                         ScrollFadeIn {
                             Text(
-                                text = "浏览器与自动登录设置",
+                                text = "WebView与自动登录",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
@@ -658,13 +614,27 @@ fun SettingsScreen(
                             SettingsRow(
                                 title = "WebView配置",
                                 subtitle = "配置默认教务网址、自适应分辨率以及默认加载模式",
-                                onClick = onNavigateToWebViewSettings
+                                onClick = onNavigateToWebViewSettings,
+                                trailingContent = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "进入",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             )
 
                             SettingsRow(
                                 title = "自动登录配置",
                                 subtitle = "管理学号与密码的自动填充、回车登录以及自动跳转功能",
-                                onClick = onNavigateToAutoLoginSettings
+                                onClick = onNavigateToAutoLoginSettings,
+                                trailingContent = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "进入",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             )
 
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
@@ -1809,5 +1779,61 @@ fun AutoLoginSettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun FloatingScaleButton(
+    imageRes: Int,
+    text: String,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    // 实时收集按压状态
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    // 弹性缩放动画：按下时缩放到 0.9 倍，松开时恢复 1.0 倍
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.9f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy, // 中等弹性
+            stiffness = Spring.StiffnessMedium              // 中等刚度，反馈更灵敏
+        ),
+        label = "floating_button_scale"
+    )
+
+    Column(
+        modifier = Modifier
+            // 1. 使用 graphicsLayer 控制缩放，避免不必要的重新布局，渲染性能极佳
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(16.dp))
+            // 2. 将点击事件与按压监听绑定
+            .clickable(
+                interactionSource = interactionSource,
+                indication = androidx.compose.foundation.LocalIndication.current, // 保留原有的水波纹效果
+                onClick = onClick
+            )
+            .padding(6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Image(
+            painter = painterResource(id = imageRes),
+            contentDescription = text,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(60.dp)
+                .clip(RoundedCornerShape(13.dp))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = text,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center
+        )
     }
 }

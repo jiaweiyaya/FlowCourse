@@ -135,7 +135,10 @@ fun MainDrawerSheet(
                             .clickable {
                                 Toast.makeText(context, "正在检查更新...", Toast.LENGTH_SHORT).show()
                                 coroutineScope.launch {
-                                    checkAppUpdate(currentAppVersion) { release, isLatest ->
+                                    val sharedPrefs = context.getSharedPreferences("FlowCourseDB", android.content.Context.MODE_PRIVATE)
+                                    val updateChannel = sharedPrefs.getInt("update_channel", 0)
+
+                                    checkAppUpdate(currentVersion = currentAppVersion, channel = updateChannel) { release, isLatest ->
                                         if (release != null) onUpdateFound(release)
                                         else if (isLatest) Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
                                         else Toast.makeText(context, "检查失败，请检查网络", Toast.LENGTH_SHORT).show()

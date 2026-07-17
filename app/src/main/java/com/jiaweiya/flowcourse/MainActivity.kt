@@ -91,6 +91,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.ui.draw.blur
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.runtime.mutableIntStateOf
 
 import android.webkit.JavascriptInterface
 import androidx.compose.ui.draw.alpha
@@ -197,10 +198,17 @@ fun updateAppWidget(context: Context) {
 }
 
 // 检查更新的网络请求函数
-suspend fun checkAppUpdate(currentVersion: String, onResult: (GithubRelease?, Boolean) -> Unit) {
+suspend fun checkAppUpdate(currentVersion: String, channel: Int, onResult: (GithubRelease?, Boolean) -> Unit) {
     withContext(Dispatchers.IO) {
         try {
-            val url = URL("https://api.github.com/repos/jiaweiyaya/FlowCourse/releases/latest")
+            // 正式版（0）请求 latest，CL版（1）请求全量列表 releases
+            val urlString = if (channel == 1) {
+                "https://api.github.com/repos/jiaweiyaya/FlowCourse/releases"
+            } else {
+                "https://api.github.com/repos/jiaweiyaya/FlowCourse/releases/latest"
+            }
+
+            val url = URL(urlString)
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
@@ -209,25 +217,39 @@ suspend fun checkAppUpdate(currentVersion: String, onResult: (GithubRelease?, Bo
 
             if (connection.responseCode == 200) {
                 val json = connection.inputStream.bufferedReader().readText()
-                val release = Gson().fromJson(json, GithubRelease::class.java)
+                val gson = Gson()
 
-                val remoteVersion = release.tag_name.replace(Regex("[^0-9.]"), "")
-                val localVersion = currentVersion.replace(Regex("[^0-9.]"), "")
-
-                fun toInts(v: String) = v.split(".").map { it.toIntOrNull() ?: 0 }
-                val remoteParts = toInts(remoteVersion)
-                val localParts = toInts(localVersion)
-
-                var isNewer = false
-                for (i in 0 until maxOf(remoteParts.size, localParts.size)) {
-                    val r = remoteParts.getOrNull(i) ?: 0
-                    val l = localParts.getOrNull(i) ?: 0
-                    if (r > l) { isNewer = true; break }
-                    if (r < l) { break }
+                val release = if (channel == 1) {
+                    // CL 频道解析 JSON 数组，获取首个（即最新发布，含预览版）
+                    val type = object : TypeToken<List<GithubRelease>>() {}.type
+                    val releases = gson.fromJson<List<GithubRelease>>(json, type)
+                    releases.firstOrNull()
+                } else {
+                    // 正式版直接解析单体最新的正式版本
+                    gson.fromJson(json, GithubRelease::class.java)
                 }
 
-                withContext(Dispatchers.Main) {
-                    if (isNewer) onResult(release, false) else onResult(null, true)
+                if (release != null) {
+                    val remoteVersion = release.tag_name.replace(Regex("[^0-9.]"), "")
+                    val localVersion = currentVersion.replace(Regex("[^0-9.]"), "")
+
+                    fun toInts(v: String) = v.split(".").map { it.toIntOrNull() ?: 0 }
+                    val remoteParts = toInts(remoteVersion)
+                    val localParts = toInts(localVersion)
+
+                    var isNewer = false
+                    for (i in 0 until maxOf(remoteParts.size, localParts.size)) {
+                        val r = remoteParts.getOrNull(i) ?: 0
+                        val l = localParts.getOrNull(i) ?: 0
+                        if (r > l) { isNewer = true; break }
+                        if (r < l) { break }
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        if (isNewer) onResult(release, false) else onResult(null, true)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) { onResult(null, false) }
                 }
             } else {
                 withContext(Dispatchers.Main) { onResult(null, false) }
@@ -317,6 +339,7 @@ class MainActivity : ComponentActivity() {
             var realTimeSlider by remember { mutableStateOf(sharedPrefs.getBoolean("real_time_slider", false)) }
             var parserId by remember { mutableIntStateOf(sharedPrefs.getInt("parser_id", 1)) }
 
+            var updateChannel by remember { mutableIntStateOf(sharedPrefs.getInt("update_channel", 0)) }
             var autoCheckUpdate by remember { mutableStateOf(sharedPrefs.getBoolean("auto_check_update", true)) }
             var showWatermark by remember { mutableStateOf(sharedPrefs.getBoolean("show_watermark", true)) }
             var updateInfo by remember { mutableStateOf<GithubRelease?>(null) }
@@ -373,7 +396,8 @@ class MainActivity : ComponentActivity() {
                 preferredConflictIds, realTimeSlider, autoCheckUpdate, showWatermark,
                 showCourseBorder, courseBorderColor,
                 autoUsername, autoPassword, isAutoLoginEnabled, isAutoNavigateEnabled, defaultDesktopMode,
-                themeColor
+                themeColor,
+                updateChannel
             ) {
                 withContext(Dispatchers.IO) {
                     sharedPrefs.edit()
@@ -401,6 +425,7 @@ class MainActivity : ComponentActivity() {
                         .putLong("course_border_color", courseBorderColor)
                         .putBoolean("default_desktop_mode", defaultDesktopMode)
                         .putLong("theme_color", themeColor)
+                        .putInt("update_channel", updateChannel)
                         .apply()
                 }
             }
@@ -448,7 +473,7 @@ class MainActivity : ComponentActivity() {
                         val todayStr = LocalDate.now().toString()
                         val lastCheckDate = sharedPrefs.getString("last_update_check_date", "")
                         if (lastCheckDate != todayStr) {
-                            checkAppUpdate(currentAppVersion) { release, _ ->
+                            checkAppUpdate(currentAppVersion, updateChannel) { release, _ ->
                                 if (release != null) updateInfo = release
                             }
                             sharedPrefs.edit().putString("last_update_check_date", todayStr).apply()
@@ -546,6 +571,8 @@ class MainActivity : ComponentActivity() {
                                     onParserIdChange = { id -> parserId = id },
                                     themeMode = themeMode,
                                     onThemeChange = { theme -> themeMode = theme },
+                                    updateChannel = updateChannel,
+                                    onUpdateChannelChange = { channel -> updateChannel = channel },
                                     themeColor = resolvedThemeColor,
                                     onThemeColorChange = { color -> themeColor = color },
                                     autoCheckUpdate = autoCheckUpdate,
@@ -553,7 +580,7 @@ class MainActivity : ComponentActivity() {
                                     onManualCheckUpdate = {
                                         Toast.makeText(context, "正在检查更新...", Toast.LENGTH_SHORT).show()
                                         coroutineScope.launch {
-                                            checkAppUpdate(currentAppVersion) { release, isLatest ->
+                                            checkAppUpdate(currentAppVersion, updateChannel) { release, isLatest ->
                                                 if (release != null) {
                                                     updateInfo = release
                                                 } else if (isLatest) {

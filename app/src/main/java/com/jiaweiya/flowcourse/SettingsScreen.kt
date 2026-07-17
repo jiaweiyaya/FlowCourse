@@ -87,6 +87,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.filled.Build
 
 // 定义图标数据类
 data class AppIconData(val id: Int, val alias: String, val iconRes: Int, val name: String)
@@ -243,6 +244,8 @@ fun SettingsScreen(
     onParserIdChange: (Int) -> Unit,
     themeMode: Int,
     onThemeChange: (Int) -> Unit,
+    updateChannel: Int,
+    onUpdateChannelChange: (Int) -> Unit,
     themeColor: Long,
     onThemeColorChange: (Long) -> Unit,
     autoCheckUpdate: Boolean,
@@ -280,6 +283,7 @@ fun SettingsScreen(
     var showFeedbackChannelDialog by remember { mutableStateOf(false) }
     var showQQGroupDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showChannelDialog by remember { mutableStateOf(false) }
     var showThemeColorDialog by remember { mutableStateOf(false) }
     var showSponsorDialog by remember { mutableStateOf(false) }
 
@@ -457,6 +461,37 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
                             )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showChannelDialog = true }
+                                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("更新通道", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val channelIcons = listOf(
+                                        Icons.Default.Check,
+                                        Icons.Default.Build
+                                    )
+                                    Icon(
+                                        imageVector = channelIcons[updateChannel],
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = if (updateChannel == 1) "CL频道 (预览版)" else "正式版频道",
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
 
                             Row(
                                 modifier = Modifier
@@ -805,6 +840,17 @@ fun SettingsScreen(
             onSave = {
                 onCourseBorderColorChange(it)
                 showBorderColorDialog = false
+            }
+        )
+    }
+
+    if (showChannelDialog) {
+        ChannelSelectionDialog(
+            currentChannel = updateChannel,
+            onDismiss = { showChannelDialog = false },
+            onSave = { newChannel ->
+                onUpdateChannelChange(newChannel)
+                showChannelDialog = false
             }
         )
     }
@@ -1907,4 +1953,133 @@ fun FloatingScaleButton(
             textAlign = TextAlign.Center
         )
     }
+}
+
+@Composable
+fun ChannelSelectionDialog(
+    currentChannel: Int,
+    onDismiss: () -> Unit,
+    onSave: (Int) -> Unit
+) {
+    var selectedChannel by remember { mutableIntStateOf(currentChannel) }
+    val itemBoundsInRoot = remember { mutableStateMapOf<Int, Rect>() }
+    var boxBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
+    val density = LocalDensity.current
+
+    val channelOptions = listOf(
+        Triple("正式版频道", Icons.Default.Check, 0),
+        Triple("CL频道 (预览版)", Icons.Default.Build, 1)
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择更新通道", fontWeight = FontWeight.Bold) },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .onGloballyPositioned { coords -> boxBoundsInRoot = coords.boundsInRoot() }
+            ) {
+                val targetItemRoot = itemBoundsInRoot[selectedChannel] ?: Rect.Zero
+                val targetRelative = if (targetItemRoot != Rect.Zero && boxBoundsInRoot != Rect.Zero) {
+                    targetItemRoot.translate(-boxBoundsInRoot.left, -boxBoundsInRoot.top)
+                } else Rect.Zero
+
+                if (targetRelative != Rect.Zero) {
+                    val animSpec = spring<Float>(dampingRatio = 0.65f, stiffness = 400f)
+
+                    val animLeft by animateFloatAsState(targetRelative.left, animSpec, label = "X")
+                    val animTop by animateFloatAsState(targetRelative.top, animSpec, label = "Y")
+                    val animWidth by animateFloatAsState(targetRelative.width, animSpec, label = "W")
+                    val animHeight by animateFloatAsState(targetRelative.height, animSpec, label = "H")
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset { IntOffset(animLeft.roundToInt(), animTop.roundToInt()) }
+                            .size(with(density) { animWidth.toDp() }, with(density) { animHeight.toDp() })
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    channelOptions.forEach { (title, icon, index) ->
+                        val isSelected = selectedChannel == index
+
+                        val itemBgColor by animateColorAsState(
+                            targetValue = if (isSelected) Color.Transparent
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                            animationSpec = tween(300),
+                            label = "itemBgAnim"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .onGloballyPositioned { coords -> itemBoundsInRoot[index] = coords.boundsInRoot() }
+                                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                                    selectedChannel = index
+                                }
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(itemBgColor),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = title,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = title,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val hasChanged = selectedChannel != currentChannel
+
+            val animatedContainerColor by animateColorAsState(
+                targetValue = if (hasChanged) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                animationSpec = tween(300), label = "btnBgAnim"
+            )
+            val animatedTextColor by animateColorAsState(
+                targetValue = if (hasChanged) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                animationSpec = tween(300), label = "btnTxtAnim"
+            )
+
+            Button(
+                onClick = { onSave(selectedChannel) },
+                enabled = hasChanged,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = animatedContainerColor,
+                    contentColor = animatedTextColor,
+                    disabledContainerColor = animatedContainerColor,
+                    disabledContentColor = animatedTextColor
+                )
+            ) {
+                Text(text = "保存并应用")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
 }

@@ -309,6 +309,17 @@ fun SettingsScreen(
     var showThemeColorDialog by remember { mutableStateOf(false) }
     var showSponsorDialog by remember { mutableStateOf(false) }
 
+    var cacheSizeStr by remember { mutableStateOf("计算中...") }
+    var showClearCacheDialog by remember { mutableStateOf(false) }
+
+    // 异步在 IO 线程计算当前缓存大小
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val size = getTotalCacheSize(context)
+            cacheSizeStr = formatCacheSize(size)
+        }
+    }
+
     var showParserDialog by remember { mutableStateOf(false) }
     val parsersList = listOf(Pair(1, "重庆文理学院"))
     val currentParserName = parsersList.find { it.first == parserId }?.second ?: "未知脚本"
@@ -815,6 +826,19 @@ fun SettingsScreen(
                                 }
                             )
 
+                            SettingsRow(
+                                title = "清除缓存",
+                                subtitle = "当前缓存占用 $cacheSizeStr 的存储空间",
+                                onClick = { showClearCacheDialog = true },
+                                trailingContent = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "进入",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            )
+
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
                         }
                     }
@@ -845,6 +869,39 @@ fun SettingsScreen(
             onSave = {
                 onThemeColorChange(it)
                 showThemeColorDialog = false
+            }
+        )
+    }
+
+    if (showClearCacheDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearCacheDialog = false },
+            title = { Text("确认清除缓存？", fontWeight = FontWeight.Bold) },
+            text = { Text("清除缓存将删除应用运行中产生的临时文件（如网络临时缓存、教务网页加载的图片等）。这不会影响你的任何课表和系统配置。确认清除吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearCacheDialog = false
+                        coroutineScope.launch {
+                            val success = withContext(Dispatchers.IO) {
+                                clearAppCache(context)
+                            }
+                            if (success) {
+                                Toast.makeText(context, "缓存清除成功", Toast.LENGTH_SHORT).show()
+                                // 清除成功后在 IO 线程重新计算当前体积并刷新 UI
+                                val newSize = withContext(Dispatchers.IO) { getTotalCacheSize(context) }
+                                cacheSizeStr = formatCacheSize(newSize)
+                            } else {
+                                Toast.makeText(context, "部分缓存清理受阻", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                ) { Text("确认") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearCacheDialog = false }) {
+                    Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         )
     }
@@ -2187,4 +2244,78 @@ fun ChannelSelectionDialog(
             }
         }
     )
+}
+
+// 递归计算文件夹体积大小
+private fun getFolderSize(file: java.io.File?): Long {
+    if (file == null || !file.exists()) return 0L
+    if (file.isFile) return file.length()
+    var size = 0L
+    val files = file.listFiles()
+    if (files != null) {
+        for (f in files) {
+            size += getFolderSize(f)
+        }
+    }
+    return size
+}
+
+// 获取 App 的总缓存占用 (包含内部 cache 和外部 externalCache)
+private fun getTotalCacheSize(context: Context): Long {
+    var size = getFolderSize(context.cacheDir)
+    val extCacheDir = context.externalCacheDir
+    if (extCacheDir != null) {
+        size += getFolderSize(extCacheDir)
+    }
+    return size
+}
+
+// 递归删除文件夹内容
+private fun deleteDirContent(file: java.io.File?): Boolean {
+    if (file == null || !file.exists()) return false
+    if (file.isDirectory) {
+        val children = file.listFiles()
+        if (children != null) {
+            for (child in children) {
+                deleteDirContent(child)
+            }
+        }
+    }
+    return file.delete()
+}
+
+// 清理缓存核心方法
+private fun clearAppCache(context: Context): Boolean {
+    var success = true
+    try {
+        val cacheFiles = context.cacheDir.listFiles()
+        if (cacheFiles != null) {
+            for (f in cacheFiles) {
+                success = success && deleteDirContent(f)
+            }
+        }
+        val extCacheDir = context.externalCacheDir
+        if (extCacheDir != null) {
+            val extCacheFiles = extCacheDir.listFiles()
+            if (extCacheFiles != null) {
+                for (f in extCacheFiles) {
+                    success = success && deleteDirContent(f)
+                }
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        success = false
+    }
+    return success
+}
+
+// 自适应计算并保留三位小数格式化输出 (Bytes -> KiB/MiB)
+private fun formatCacheSize(sizeInBytes: Long): String {
+    val sizeInKiB = sizeInBytes.toDouble() / 1024.0
+    if (sizeInKiB < 1024.0) {
+        return String.format("%.3f KiB", sizeInKiB)
+    }
+    val sizeInMiB = sizeInKiB / 1024.0
+    return String.format("%.3f MiB", sizeInMiB)
 }

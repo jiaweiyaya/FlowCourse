@@ -256,7 +256,6 @@ fun CourseBlock(
 
     val maxNameLines = if (height >= timeSlotHeight.value * 2 - 10) 5 else 2
 
-    // 🌟 还原老代码中用于防止地点和老师名字重叠的动态边距计算
     val teacherLineHeightDp = with(density) { 10.sp.toDp() }
     val totalTeacherSpace = teacherLineHeightDp + 4.dp
 
@@ -281,7 +280,6 @@ fun CourseBlock(
             }
             .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
-        // 🌟 核心修复：完全还原老代码的排版机制，保证与老代码表现 100% 一致
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(0.dp)
@@ -306,11 +304,11 @@ fun CourseBlock(
                         fontSize = 9.sp,
                         color = Color(course.textColor).copy(alpha = 0.7f),
                         lineHeight = 10.sp,
-                        maxLines = Int.MAX_VALUE, // 🌟 还原无限制行数
+                        maxLines = Int.MAX_VALUE,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(bottom = totalTeacherSpace) // 🌟 还原防重叠的底部边距
+                            .padding(bottom = totalTeacherSpace)
                     )
                 }
 
@@ -324,7 +322,7 @@ fun CourseBlock(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
-                            .align(Alignment.BottomCenter) // 🌟 还原最底端居中对齐
+                            .align(Alignment.BottomCenter)
                             .padding(bottom = 2.dp)
                     )
                 }

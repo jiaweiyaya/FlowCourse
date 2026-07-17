@@ -30,10 +30,8 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun FlowCourseTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // 🌟 核心修改：把这里的 true 改成 false！
-    // 这样 Android 12+ 的手机才会乖乖使用你指定的紫色，而不是强行用壁纸色！
     dynamicColor: Boolean = false,
-    themeColor: Long = 0xFF9E77ED, // 👈 1. 新增主题色参数，并给定默认颜色（0xFF9E77ED 对应紫色）
+    themeColor: Long = 0xFF9E77ED,
     content: @Composable () -> Unit
 ) {
     // 2. 将传入的 Long 转换为 Color 对象
@@ -43,7 +41,7 @@ fun FlowCourseTheme(
     val dynamicLightScheme = lightColorScheme(
         primary = baseColor,               // 各种按钮、文字高亮
         onPrimary = Color.White,           // 主色调按钮上的文字颜色
-        primaryContainer = baseColor.copy(alpha = 0.15f), // 🌟 使用 15% 透明度作为容器背景（如当天的课表高亮背景）
+        primaryContainer = baseColor.copy(alpha = 0.15f), // 使用 15% 透明度作为容器背景（如当天的课表高亮背景）
         onPrimaryContainer = baseColor,    // 容器上的文字颜色
         secondary = baseColor,             // 次要颜色（跟随主色调）
         tertiary = baseColor               // 第三颜色（跟随主色调）
@@ -53,7 +51,7 @@ fun FlowCourseTheme(
     val dynamicDarkScheme = darkColorScheme(
         primary = baseColor,
         onPrimary = Color.Black,           // 深色模式下，主色调按钮上的文字建议使用黑色或深色以保证可读性
-        primaryContainer = baseColor.copy(alpha = 0.3f), // 🌟 深色模式下使用 30% 透明度作为容器高亮
+        primaryContainer = baseColor.copy(alpha = 0.3f), // 深色模式下使用 30% 透明度作为容器高亮
         onPrimaryContainer = Color.White,
         secondary = baseColor,
         tertiary = baseColor

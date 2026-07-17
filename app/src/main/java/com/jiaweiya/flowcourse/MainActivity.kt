@@ -324,6 +324,8 @@ class MainActivity : ComponentActivity() {
         val gson = Gson()
 
         setContent {
+            var pendingBackupToImport by remember { mutableStateOf<BackupData?>(null) }
+            var pendingBackupToVerify by remember { mutableStateOf<BackupData?>(null) }
             // 设置状态
             var themeMode by remember { mutableIntStateOf(sharedPrefs.getInt("theme_mode", 0)) }
             var showBgImage by remember { mutableStateOf(sharedPrefs.getBoolean("show_bg_image", false)) }
@@ -434,6 +436,34 @@ class MainActivity : ComponentActivity() {
             FlowCourseTheme(darkTheme = useDarkTheme, themeColor = resolvedThemeColor) {
                 val navController = rememberNavController()
                 val coroutineScope = rememberCoroutineScope()
+
+                val importDocLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+                    if (uri != null) {
+                        coroutineScope.launch {
+                            try {
+                                val encryptedText = withContext(Dispatchers.IO) {
+                                    context.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
+                                }
+                                if (encryptedText != null) {
+                                    // 调用 AES-GCM 安全自校验解密
+                                    val decryptedText = BackupCrypto.decrypt(encryptedText)
+                                    val backupData = Gson().fromJson(decryptedText, BackupData::class.java)
+
+                                    // 版本号检验：不一致则缓存进入弹窗提醒流程
+                                    if (backupData.appVersion != currentAppVersion) {
+                                        pendingBackupToVerify = backupData
+                                    } else {
+                                        pendingBackupToImport = backupData
+                                        navController.navigate("ImportBackup")
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                Toast.makeText(context, "解析备份文件失败：密码不匹配或文件已损坏/遭篡改", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
 
                 var timetables by remember {
                     mutableStateOf<List<TimetableData>>(
@@ -611,6 +641,8 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToAgreement = { navController.navigate("Agreement?readOnly=true") },
                                     onNavigateToWebViewSettings = { navController.navigate("WebViewSettings") },
                                     onNavigateToAutoLoginSettings = { navController.navigate("AutoLoginSettings") },
+                                    onNavigateToExportBackup = { navController.navigate("ExportBackup") },
+                                    onImportBackupClick = { importDocLauncher.launch(arrayOf("*/*")) },
                                     onBackClick = { navController.popBackStack() },
                                     showCourseBorder = showCourseBorder,
                                     onShowCourseBorderChange = { show -> showCourseBorder = show },
@@ -840,6 +872,60 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             }
+
+                            composable(
+                                route = "ExportBackup",
+                                enterTransition = { slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Left, animationSpec = tween(400)) },
+                                popExitTransition = { slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.Right, animationSpec = tween(400)) }
+                            ) {
+                                ExportBackupScreen(
+                                    currentAppVersion = currentAppVersion,
+                                    timetables = timetables,
+                                    timeProfiles = timeProfiles,
+                                    onBackClick = { navController.popBackStack() }
+                                )
+                            }
+
+                            composable(
+                                route = "ImportBackup",
+                                enterTransition = { slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Left, animationSpec = tween(400)) },
+                                popExitTransition = { slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.Right, animationSpec = tween(400)) }
+                            ) {
+                                ImportBackupScreen(
+                                    backupData = pendingBackupToImport,
+                                    currentTimetables = timetables,
+                                    currentTimeProfiles = timeProfiles,
+                                    onImportSuccess = { updatedTimetables, updatedProfiles ->
+                                        timetables = updatedTimetables
+                                        timeProfiles = updatedProfiles
+
+                                        // 强制将内存设置项重新绑定，使其在回到主页后立即实时重绘生效
+                                        themeMode = sharedPrefs.getInt("theme_mode", 0)
+                                        showBgImage = sharedPrefs.getBoolean("show_bg_image", false)
+                                        bgImageUri = sharedPrefs.getString("bg_image_uri", null)
+                                        bgOpacity = sharedPrefs.getFloat("bg_opacity", 0.5f)
+                                        highlightToday = sharedPrefs.getBoolean("highlight_today", true)
+                                        showTimeLine = sharedPrefs.getBoolean("show_time_line", true)
+                                        showConflictWarning = sharedPrefs.getBoolean("show_conflict", true)
+                                        conflictColor = sharedPrefs.getLong("conflict_color", 0xFFFF0000)
+                                        realTimeSlider = sharedPrefs.getBoolean("real_time_slider", false)
+                                        parserId = sharedPrefs.getInt("parser_id", 1)
+                                        autoCheckUpdate = sharedPrefs.getBoolean("auto_check_update", true)
+                                        showWatermark = sharedPrefs.getBoolean("show_watermark", true)
+                                        showCourseBorder = sharedPrefs.getBoolean("show_course_border", true)
+                                        courseBorderColor = sharedPrefs.getLong("course_border_color", 0xFF9E77ED)
+                                        autoUsername = sharedPrefs.getString("auto_username", "") ?: ""
+                                        autoPassword = sharedPrefs.getString("auto_password", "") ?: ""
+                                        isAutoLoginEnabled = sharedPrefs.getBoolean("auto_login", false)
+                                        isAutoNavigateEnabled = sharedPrefs.getBoolean("auto_navigate", false)
+                                        defaultDesktopMode = sharedPrefs.getBoolean("default_desktop_mode", false)
+                                    },
+                                    onBackClick = {
+                                        pendingBackupToImport = null
+                                        navController.popBackStack()
+                                    }
+                                )
+                            }
                         }
 
                         if (updateInfo != null) {
@@ -862,6 +948,30 @@ class MainActivity : ComponentActivity() {
                                 },
                                 dismissButton = {
                                     TextButton(onClick = { updateInfo = null }) { Text("暂不更新", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                }
+                            )
+                        }
+
+                        if (pendingBackupToVerify != null) {
+                            AlertDialog(
+                                onDismissRequest = { pendingBackupToVerify = null },
+                                title = { Text("备份版本不一致警告", fontWeight = FontWeight.Bold) },
+                                text = {
+                                    Text("该备份文件的源应用版本为 [${pendingBackupToVerify!!.appVersion}]，当前运行的版本为 [$currentAppVersion]。\n\n版本不一致可能会导致部分新增的配置项无法完美读取。是否继续导入？")
+                                },
+                                confirmButton = {
+                                    Button(
+                                        onClick = {
+                                            pendingBackupToImport = pendingBackupToVerify
+                                            pendingBackupToVerify = null
+                                            navController.navigate("ImportBackup")
+                                        }
+                                    ) { Text("继续导入") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { pendingBackupToVerify = null }) {
+                                        Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                             )
                         }

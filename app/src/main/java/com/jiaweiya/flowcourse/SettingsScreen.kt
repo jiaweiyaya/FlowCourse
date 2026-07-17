@@ -88,6 +88,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 
 // 定义图标数据类
 data class AppIconData(val id: Int, val alias: String, val iconRes: Int, val name: String)
@@ -271,6 +272,8 @@ fun SettingsScreen(
     onNavigateToAgreement: () -> Unit,
     onNavigateToWebViewSettings: () -> Unit,
     onNavigateToAutoLoginSettings: () -> Unit,
+    onNavigateToExportBackup: () -> Unit,
+    onImportBackupClick: () -> Unit,
     onBackClick: () -> Unit,
     showCourseBorder: Boolean,
     onShowCourseBorderChange: (Boolean) -> Unit,
@@ -714,6 +717,46 @@ fun SettingsScreen(
                                 title = "自动登录配置",
                                 subtitle = "管理学号与密码的自动填充、回车登录以及自动跳转功能",
                                 onClick = onNavigateToAutoLoginSettings,
+                                trailingContent = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "进入",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            )
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                    }
+
+                    item {
+                        ScrollFadeIn {
+                            Text(
+                                text = "其他",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
+                            )
+
+                            SettingsRow(
+                                title = "导出应用数据",
+                                subtitle = "选择性导出系统配置、课表及时间配置为加密文件",
+                                onClick = onNavigateToExportBackup,
+                                trailingContent = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "进入",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            )
+
+                            SettingsRow(
+                                title = "导入应用数据",
+                                subtitle = "从外部加密备份文件选择性恢复或合并配置与课表",
+                                onClick = onImportBackupClick,
                                 trailingContent = {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,

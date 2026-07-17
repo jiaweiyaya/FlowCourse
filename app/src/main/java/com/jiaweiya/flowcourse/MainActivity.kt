@@ -347,6 +347,7 @@ class MainActivity : ComponentActivity() {
             var updateInfo by remember { mutableStateOf<GithubRelease?>(null) }
             val currentAppVersion = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0" } catch (e: Exception) { "1.0.0" }
 
+            var timeLineColor by remember { mutableLongStateOf(sharedPrefs.getLong("time_line_color", 0xFFDB72FA)) }
             var showCourseBorder by remember { mutableStateOf(sharedPrefs.getBoolean("show_course_border", true)) }
             var courseBorderColor by remember { mutableLongStateOf(sharedPrefs.getLong("course_border_color", 0xFF9E77ED)) }
 
@@ -398,7 +399,7 @@ class MainActivity : ComponentActivity() {
                 preferredConflictIds, realTimeSlider, autoCheckUpdate, showWatermark,
                 showCourseBorder, courseBorderColor,
                 autoUsername, autoPassword, isAutoLoginEnabled, isAutoNavigateEnabled, defaultDesktopMode,
-                themeColor,
+                themeColor,timeLineColor,
                 updateChannel
             ) {
                 withContext(Dispatchers.IO) {
@@ -433,6 +434,7 @@ class MainActivity : ComponentActivity() {
             }
 
             val resolvedThemeColor = resolveThemeColor(themeColor, useDarkTheme)
+            val resolvedTimeLineColor = resolveTimeLineColor(timeLineColor, useDarkTheme)
             FlowCourseTheme(darkTheme = useDarkTheme, themeColor = resolvedThemeColor) {
                 val navController = rememberNavController()
                 val coroutineScope = rememberCoroutineScope()
@@ -578,7 +580,8 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToAbout = { navController.navigate("About") },
                                     onImportCourses = { courses -> pendingImportCourses = courses },
                                     showCourseBorder = showCourseBorder,
-                                    courseBorderColor = courseBorderColor
+                                    courseBorderColor = courseBorderColor,
+                                    timeLineColor = resolvedTimeLineColor
                                 )
                             }
 
@@ -647,7 +650,9 @@ class MainActivity : ComponentActivity() {
                                     showCourseBorder = showCourseBorder,
                                     onShowCourseBorderChange = { show -> showCourseBorder = show },
                                     courseBorderColor = courseBorderColor,
-                                    onCourseBorderColorChange = { color -> courseBorderColor = color }
+                                    onCourseBorderColorChange = { color -> courseBorderColor = color },
+                                    timeLineColor = resolvedTimeLineColor ,
+                                    onTimeLineColorChange = { color -> timeLineColor = color }
                                 )
                             }
 
@@ -1043,6 +1048,7 @@ fun TimetableScreen(
     showWatermark: Boolean,
     showCourseBorder: Boolean,
     courseBorderColor: Long,
+    timeLineColor: Long,
     onPreferredConflictChange: (Set<Int>) -> Unit,
     timetables: List<TimetableData>, activeTimetableId: Int, timeProfiles: List<TimeProfile>,
     currentActualWeek: Int, showBgImage: Boolean, bgOpacity: Float,
@@ -1219,7 +1225,7 @@ fun TimetableScreen(
 
                 HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
                     WeekTimetableGrid(
-                        conflictColor = conflictColor, showCourseBorder = showCourseBorder, courseBorderColor = courseBorderColor,
+                        conflictColor = conflictColor, showCourseBorder = showCourseBorder, courseBorderColor = courseBorderColor,timeLineColor = timeLineColor,
                         currentWeek = page + 1, allCourses = courses, profileNodes = activeProfileNodes, termStartStr = activeTimetable?.termStart,
                         highlightToday = highlightToday, showTimeLine = showTimeLine, showConflictWarning = showConflictWarning, preferredConflictIds = preferredConflictIds,
                         onCourseClick = { clickedGroup ->

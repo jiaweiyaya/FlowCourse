@@ -93,6 +93,7 @@ fun WeekTimetableGrid(
     highlightToday: Boolean,
     showTimeLine: Boolean,
     showConflictWarning: Boolean,
+    timeLineColor: Long,
 ) {
     val scrollState = rememberScrollState()
     val visibleNodes = profileNodes.filter { it.isVisible }
@@ -233,7 +234,8 @@ fun WeekTimetableGrid(
                 TimeLineMarker(
                     visibleNodes = visibleNodes,
                     slotHeightPx = slotHeightPx,
-                    density = density
+                    density = density,
+                    timeLineColor = timeLineColor
                 )
             }
         }
@@ -349,9 +351,9 @@ fun CourseBlock(
 fun TimeLineMarker(
     visibleNodes: List<NodeTime>,
     slotHeightPx: Float,
-    density: Density
+    density: Density,
+    timeLineColor: Long
 ) {
-    // 状态和定时器只属于这个轻量的小红线，每秒更新只会重组这几行像素，不波及任何卡片
     var currentTime by remember { mutableStateOf(LocalTime.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -370,8 +372,9 @@ fun TimeLineMarker(
                 .offset(y = with(density) { yOffsetPx.toDp() })
                 .zIndex(10f)
         ) {
-            val timeLineColor = Color(0xFFDB72FA)
-            HorizontalDivider(thickness = 2.dp, color = timeLineColor.copy(alpha = 0.8f))
+            val markerColor = Color(timeLineColor)
+
+            HorizontalDivider(thickness = 2.dp, color = markerColor.copy(alpha = 0.8f))
 
             Row(
                 modifier = Modifier
@@ -382,13 +385,13 @@ fun TimeLineMarker(
                 Text(
                     text = String.format("%02d:%02d", currentTime.hour, currentTime.minute),
                     fontSize = 8.sp,
-                    color = timeLineColor,
+                    color = markerColor,
                     fontWeight = FontWeight.Bold
                 )
                 Icon(
                     imageVector = Icons.Default.ArrowDropDown,
                     contentDescription = null,
-                    tint = timeLineColor,
+                    tint = markerColor,
                     modifier = Modifier.size(15.dp).offset(x = (-3).dp)
                 )
             }

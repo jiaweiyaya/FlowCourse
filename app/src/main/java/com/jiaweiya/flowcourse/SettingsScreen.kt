@@ -130,6 +130,22 @@ fun resolveThemeColor(color: Long, isDark: Boolean): Long {
     return color
 }
 
+val timeLineColorOptions = listOf(0xFFDB72FAL) + colorOptions.drop(1)
+val darkTimeLineColorOptions = listOf(0xFFECAFFFL) + darkColorOptions.drop(1) // 0xFFECAFFF 为深色下的减淡柔和版本
+
+// 时间线颜色的明暗模式转换辅助函数
+fun resolveTimeLineColor(color: Long, isDark: Boolean): Long {
+    val lightIndex = timeLineColorOptions.indexOf(color)
+    if (isDark && lightIndex != -1) {
+        return darkTimeLineColorOptions[lightIndex]
+    }
+    val darkIndex = darkTimeLineColorOptions.indexOf(color)
+    if (!isDark && darkIndex != -1) {
+        return timeLineColorOptions[darkIndex]
+    }
+    return color
+}
+
 // 更换应用图标的方法
 fun changeAppIcon(context: Context, targetAlias: String) {
     val pm = context.packageManager
@@ -261,6 +277,8 @@ fun SettingsScreen(
     highlightToday: Boolean,
     onHighlightTodayChange: (Boolean) -> Unit,
     showTimeLine: Boolean,
+    timeLineColor: Long,
+    onTimeLineColorChange: (Long) -> Unit,
     onShowTimeLineChange: (Boolean) -> Unit,
     showConflictWarning: Boolean,
     onShowConflictWarningChange: (Boolean) -> Unit,
@@ -286,6 +304,7 @@ fun SettingsScreen(
     var showFeedbackChannelDialog by remember { mutableStateOf(false) }
     var showQQGroupDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showTimeLineColorDialog by remember { mutableStateOf(false) }
     var showChannelDialog by remember { mutableStateOf(false) }
     var showThemeColorDialog by remember { mutableStateOf(false) }
     var showSponsorDialog by remember { mutableStateOf(false) }
@@ -570,13 +589,43 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("高亮当天与时间线", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Text("高亮当天", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Switch(
+                                    checked = highlightToday,
+                                    onCheckedChange = onHighlightTodayChange,
+                                    modifier = Modifier.scale(1.0f)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("显示时间线", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("高亮", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 4.dp))
-                                    Switch(checked = highlightToday, onCheckedChange = onHighlightTodayChange, modifier = Modifier.scale(0.8f))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("时间线", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 4.dp))
-                                    Switch(checked = showTimeLine, onCheckedChange = onShowTimeLineChange, modifier = Modifier.scale(0.8f))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { showTimeLineColorDialog = true },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(3.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(Color(timeLineColor))
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Switch(
+                                        checked = showTimeLine,
+                                        onCheckedChange = onShowTimeLineChange,
+                                        modifier = Modifier.scale(1.0f)
+                                    )
                                 }
                             }
 
@@ -814,6 +863,19 @@ fun SettingsScreen(
                 }
 
                 showThemeDialog = false
+            }
+        )
+    }
+
+    if (showTimeLineColorDialog) {
+        val activeTimeLineColorOptions = if (isAppDark) darkTimeLineColorOptions else timeLineColorOptions
+        ColorSelectionDialog(
+            currentColor = timeLineColor,
+            colorOptions = activeTimeLineColorOptions,
+            onDismiss = { showTimeLineColorDialog = false },
+            onSave = {
+                onTimeLineColorChange(it)
+                showTimeLineColorDialog = false
             }
         )
     }

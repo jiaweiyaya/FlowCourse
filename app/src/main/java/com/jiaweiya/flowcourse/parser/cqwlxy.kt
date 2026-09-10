@@ -443,28 +443,71 @@ object CqwlxyParser {
         if (isKbApp) {
             return """
             javascript:(function() {
-                console.log('[JS] [静默] 已抵达课表应用，正在调用接口拉取课程数据...');
-                var basePath = window.location.href.split('/jwapp/')[0] + '/jwapp';
-                var targetUrl = basePath + '/sys/kbapp/api/wdkbcx/getMyScheduleDetail.do';
+                console.log('[JS] [静默] 已抵达课表应用，正在准备获取课程数据...');
 
-                fetch(targetUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                        'X-Requested-With': 'XMLHttpRequest'
-                    },
-                    body: 'XNXQDM=&XQDM='
-                })
-                .then(function(res) { return res.text(); })
-                .then(function(text) {
-                    console.log('[JS] [静默] 接口返回数据，正在回传...');
+                // 1. 如果监听钩子已经缓存了课表，直接回传
+                if (window.__FC_SCHEDULE_DATA__) {
+                    console.log('[JS] [静默] 命中已缓存的课表数据，直接回传');
                     if (window.AndroidBridge) {
-                        window.AndroidBridge.onTimetableExtracted(text);
+                        window.AndroidBridge.onTimetableExtracted(window.__FC_SCHEDULE_DATA__);
                     }
-                })
-                .catch(function(err) {
-                    console.log('[JS] [静默] 提取课表接口异常: ' + err);
-                });
+                    return;
+                }
+
+                // 2. 轮询检测：等待页面自身请求完成，或者嗅探学期主动请求
+                var retryCount = 0;
+                var timer = setInterval(function() {
+                    retryCount++;
+                    if (window.__FC_SCHEDULE_DATA__) {
+                        clearInterval(timer);
+                        console.log('[JS] [静默] 自动监听捕获到课表数据，正在回传...');
+                        if (window.AndroidBridge) {
+                            window.AndroidBridge.onTimetableExtracted(window.__FC_SCHEDULE_DATA__);
+                        }
+                        return;
+                    }
+
+                    // 尝试主动嗅探学年学期代码
+                    var xnxqdm = '';
+                    try {
+                        xnxqdm = sessionStorage.getItem('XNXQDM') || '';
+                        if (!xnxqdm) {
+                            var el = document.querySelector('[data-name="XNXQDM"]') || document.querySelector('input[name="XNXQDM"]');
+                            if (el && el.value) xnxqdm = el.value;
+                        }
+                        if (!xnxqdm) {
+                            var match = document.body.innerText.match(/\d{4}-\d{4}-[123]/);
+                            if (match) xnxqdm = match[0];
+                        }
+                    } catch(e) {}
+
+                    // 如果找到了学期或者重试达到3秒(6次)，发起带有学期参数的主动请求
+                    if (xnxqdm || retryCount >= 6) {
+                        clearInterval(timer);
+                        console.log('[JS] [静默] 正在主动拉取课表数据，学期代码: ' + xnxqdm);
+                        var basePath = window.location.href.split('/jwapp/')[0] + '/jwapp';
+                        var targetUrl = basePath + '/sys/kbapp/api/wdkbcx/getMyScheduleDetail.do';
+
+                        fetch(targetUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: 'XNXQDM=' + encodeURIComponent(xnxqdm) + '&XQDM='
+                        })
+                        .then(function(res) { return res.text(); })
+                        .then(function(text) {
+                            console.log('[JS] [静默] 接口返回数据，正在回传...');
+                            if (window.AndroidBridge) {
+                                window.AndroidBridge.onTimetableExtracted(text);
+                            }
+                        })
+                        .catch(function(err) {
+                            console.log('[JS] [静默] 提取课表接口异常: ' + err);
+                        });
+                    }
+                }, 500);
             })();
             """.trimIndent()
         }

@@ -1628,17 +1628,21 @@ fun AutoUpdateTimetableDialog(onDismiss: () -> Unit, onSuccess: (List<Course>) -
                                 settings.displayZoomControls = false
                                 settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0"
 
+                                var isHandled = false
                                 addJavascriptInterface(JSBridge { html ->
+                                    if (isHandled) return@JSBridge
                                     log("✅ [解析] 解析到课表，正在处理...")
                                     coroutineScope.launch(Dispatchers.IO) {
                                         val courses = CqwlxyParser.parseCourseFromHtml(html)
                                         withContext(Dispatchers.Main) {
                                             if (courses.isNotEmpty()) {
+                                                if (isHandled) return@withContext
+                                                isHandled = true
                                                 log("✅ [成功] 完美解析出 ${courses.size} 门课程！")
                                                 kotlinx.coroutines.delay(600)
                                                 onSuccess(courses)
                                             } else {
-                                                log("❌ [错误] 未解析到课表")
+                                                log("❌ [错误] 未解析到有效课程")
                                             }
                                         }
                                     }
@@ -1649,6 +1653,40 @@ fun AutoUpdateTimetableDialog(onDismiss: () -> Unit, onSuccess: (List<Course>) -
                                         super.onPageFinished(view, url)
                                         url?.let {
                                             log("到达: ${it.take(35)}...")
+
+                                            // 注入自动网络拦截钩子，页面自己加载课表时能直接截获完整数据
+                                            val interceptScript = """
+                                                javascript:(function() {
+                                                    if (window.__fc_silent_injected) return;
+                                                    window.__fc_silent_injected = true;
+                                                    var origOpen = XMLHttpRequest.prototype.open;
+                                                    var origSend = XMLHttpRequest.prototype.send;
+                                                    XMLHttpRequest.prototype.open = function(method, u) {
+                                                        this._fc_url = u;
+                                                        return origOpen.apply(this, arguments);
+                                                    };
+                                                    XMLHttpRequest.prototype.send = function(body) {
+                                                        var self = this;
+                                                        if (self._fc_url && self._fc_url.indexOf('getMyScheduleDetail') > -1) {
+                                                            self.addEventListener('load', function() {
+                                                                var responseData = self.responseText || '';
+                                                                if (!responseData && self.response && typeof self.response === 'string') {
+                                                                    responseData = self.response;
+                                                                }
+                                                                if (responseData && responseData.indexOf('arrangedList') > -1) {
+                                                                    window.__FC_SCHEDULE_DATA__ = responseData;
+                                                                    if (window.AndroidBridge && window.AndroidBridge.onTimetableExtracted) {
+                                                                        window.AndroidBridge.onTimetableExtracted(responseData);
+                                                                    }
+                                                                }
+                                                            });
+                                                        }
+                                                        return origSend.apply(this, arguments);
+                                                    };
+                                                })();
+                                            """.trimIndent()
+                                            view?.evaluateJavascript(interceptScript, null)
+
                                             CqwlxyParser.getAutoFillScript(it, autoUsername, autoPassword, true)?.let { script ->
                                                 log("注入账号密码...")
                                                 view?.evaluateJavascript(script, null)

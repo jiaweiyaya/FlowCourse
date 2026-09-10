@@ -1559,7 +1559,7 @@ class JSBridge(val onResult: (String) -> Unit) {
 fun AutoUpdateTimetableDialog(onDismiss: () -> Unit, onSuccess: (List<Course>) -> Unit) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
-    val defaultUrl = prefs.getString("default_url", "http://www.cqwu.edu.cn/redir/redirTmp.jsp") ?: ""
+    val defaultUrl = prefs.getString("default_url", "http://www.cqwu.edu.cn/redir/redirTmp.jsp") ?: "http://www.cqwu.edu.cn/redir/redirTmp.jsp"
     val autoUsername = prefs.getString("auto_username", "") ?: ""
     val autoPassword = prefs.getString("auto_password", "") ?: ""
 

@@ -50,6 +50,7 @@ import com.tencent.smtt.sdk.CookieManager
 import com.tencent.smtt.sdk.WebChromeClient
 import com.tencent.smtt.sdk.WebView
 import com.tencent.smtt.sdk.WebViewClient
+import android.webkit.JavascriptInterface
 import java.io.ByteArrayInputStream
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
 
@@ -89,6 +90,77 @@ fun BrowserScreen(
 
     val extractScript = """
         (function() {
+            function log(msg) {
+                if (window.AndroidBridge && window.AndroidBridge.log) {
+                    window.AndroidBridge.log(msg);
+                } else {
+                    console.log('[JS] ' + msg);
+                }
+            }
+
+            log('[提取指令] 用户点击提取按钮，当前URL: ' + window.location.href);
+
+            // 1. 优先检查页面是否已经通过网络监听缓存了课表数据
+            if (window.__FC_SCHEDULE_DATA__) {
+                log('[提取] 发现页面已监听缓存的课表数据，直接回传');
+                if (window.AndroidBridge) {
+                    window.AndroidBridge.onTimetableExtracted(window.__FC_SCHEDULE_DATA__);
+                }
+                return 'CACHED';
+            }
+
+            // 2. 如果在教务系统内部 (jwapp 或 kbapp)
+            if (window.location.href.indexOf('jwapp') > -1 || window.location.href.indexOf('kbapp') > -1) {
+                var basePath = window.location.href.split('/jwapp/')[0] + '/jwapp';
+                var targetUrl = basePath + '/sys/kbapp/api/wdkbcx/getMyScheduleDetail.do';
+
+                // 多策略嗅探当前学年学期参数
+                var xnxqdm = '';
+                try {
+                    xnxqdm = sessionStorage.getItem('XNXQDM') || '';
+                    if (!xnxqdm) {
+                        var selectorInput = document.querySelector('[data-name="XNXQDM"]') || document.querySelector('input[name="XNXQDM"]');
+                        if (selectorInput && selectorInput.value) xnxqdm = selectorInput.value;
+                    }
+                    if (!xnxqdm) {
+                        var termMatch = document.body.innerText.match(/\d{4}-\d{4}-[123]/);
+                        if (termMatch) xnxqdm = termMatch[0];
+                    }
+                } catch(err) {
+                    log('[学期探测警告] ' + err);
+                }
+
+                var postPayload = 'XNXQDM=' + encodeURIComponent(xnxqdm) + '&XQDM=';
+                log('[网络请求] 发起POST请求: ' + targetUrl);
+                log('[网络负载] ' + postPayload);
+
+                fetch(targetUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: postPayload
+                })
+                .then(function(res) {
+                    log('[收到响应] HTTP状态: ' + res.status);
+                    return res.text();
+                })
+                .then(function(text) {
+                    log('[响应长度] 收到内容长度: ' + text.length + ' 字符');
+                    log('[响应预览] ' + text.substring(0, Math.min(text.length, 260)));
+                    if (window.AndroidBridge) {
+                        window.AndroidBridge.onTimetableExtracted(text);
+                    }
+                })
+                .catch(function(e) {
+                    log('[请求异常] fetch失败: ' + e);
+                });
+                return 'FETCHING';
+            }
+
+            // 3. 旧版表格DOM回退方案
+            log('[提取] 处于非新版教务页面，尝试DOM穿透查找表格...');
             function findTable(doc) {
                 if(!doc) return null;
                 var t = doc.getElementById('mytable');
@@ -115,7 +187,12 @@ fun BrowserScreen(
                 } catch(e){}
                 return null;
             }
-            return walk(window, 0) || '';
+            var resultTable = walk(window, 0) || '';
+            log('[表格查找结果] 长度: ' + resultTable.length);
+            if (resultTable && window.AndroidBridge) {
+                window.AndroidBridge.onTimetableExtracted(resultTable);
+            }
+            return resultTable;
         })();
     """.trimIndent()
 
@@ -180,41 +257,43 @@ fun BrowserScreen(
                     }
                 },
                 floatingActionButton = {
+                    val handleCourseImport: (String) -> Unit = { rawResult ->
+                        coroutineScope.launch {
+                            if (rawResult.isBlank() || rawResult == "null" || rawResult == "\"\"" || rawResult == "\"FETCHING\"" || rawResult == "FETCHING" || rawResult == "\"CACHED\"" || rawResult == "CACHED") {
+                                return@launch
+                            }
+
+                            var content = rawResult
+                            try {
+                                content = Gson().fromJson(rawResult, String::class.java)
+                            } catch (e: Exception) {
+                                if (content.startsWith("\"") && content.endsWith("\"")) {
+                                    content = content.substring(1, content.length - 1)
+                                        .replace("\\\"", "\"")
+                                        .replace("\\n", "\n")
+                                        .replace("\\t", "\t")
+                                        .replace("\\u003C", "<")
+                                }
+                            }
+
+                            logger("[解析入口] 正在提交给解析器处理，长度: " + content.length)
+                            val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(content, logger) }
+                            if (newCourses.isNotEmpty()) {
+                                onImportCourses(newCourses)
+                                Toast.makeText(context, "大功告成！导入了 ${newCourses.size} 节课", Toast.LENGTH_SHORT).show()
+                                onBackClick()
+                            } else {
+                                logger("[解析失败] 未能识别出课程，请点击右上角警告图标查看日志详情")
+                                Toast.makeText(context, "解析失败：未能识别到有效课程信息", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+
                     FloatingActionButton(
                         onClick = {
                             webViewRef?.evaluateJavascript(extractScript) { result ->
-                                coroutineScope.launch {
-                                    if (result.isNullOrBlank() || result == "null" || result == "\"\"") {
-                                        Toast.makeText(context, "未提取到课表，请确保页面已经完全加载", Toast.LENGTH_SHORT).show()
-                                        return@launch
-                                    }
-
-                                    var htmlContent = result
-                                    try {
-                                        htmlContent = Gson().fromJson(result, String::class.java)
-                                    } catch (e: Exception) {
-                                        if (htmlContent.startsWith("\"")) {
-                                            htmlContent = htmlContent.substring(1, htmlContent.length - 1)
-                                                .replace("\\\"", "\"")
-                                                .replace("\\n", "\n")
-                                                .replace("\\t", "\t")
-                                                .replace("\\u003C", "<")
-                                        }
-                                    }
-
-                                    if (htmlContent.contains("星期一")) {
-                                        // 调用从 HTML 解析的方法（parseCourseFromHtml）
-                                        val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(htmlContent) }
-                                        if (newCourses.isNotEmpty()) {
-                                            onImportCourses(newCourses)
-                                            Toast.makeText(context, "大功告成！导入了 ${newCourses.size} 节课", Toast.LENGTH_SHORT).show()
-                                            onBackClick()
-                                        } else {
-                                            Toast.makeText(context, "解析失败：未能匹配出课程结构", Toast.LENGTH_LONG).show()
-                                        }
-                                    } else {
-                                        Toast.makeText(context, "未找到有效的课表表格数据", Toast.LENGTH_SHORT).show()
-                                    }
+                                if (result != null && result != "\"FETCHING\"" && result != "FETCHING") {
+                                    handleCourseImport(result)
                                 }
                             }
                         },
@@ -228,12 +307,44 @@ fun BrowserScreen(
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
 
+            DisposableEffect(Unit) {
+                onDispose {
+                    webViewRef?.stopLoading()
+                    webViewRef?.destroy()
+                    webViewRef = null
+                }
+            }
+
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     WebView.setWebContentsDebuggingEnabled(true)
                     WebView(ctx).apply {
                         setupWebViewSettings(this, isDesktopMode)
+                        addJavascriptInterface(object {
+                            @JavascriptInterface
+                            fun log(msg: String) {
+                                logger(msg)
+                            }
+
+                            @JavascriptInterface
+                            fun onTimetableExtracted(data: String) {
+                                coroutineScope.launch(Dispatchers.Main) {
+                                    if (data.isNotBlank()) {
+                                        logger("[Bridge回调] 收到数据传输，准备解析...")
+                                        val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(data, logger) }
+                                        if (newCourses.isNotEmpty()) {
+                                            onImportCourses(newCourses)
+                                            Toast.makeText(context, "大功告成！导入了 ${newCourses.size} 节课", Toast.LENGTH_SHORT).show()
+                                            onBackClick()
+                                        } else {
+                                            logger("[Bridge解析失败] 返回课程为空")
+                                            Toast.makeText(context, "解析失败：未能识别到有效课程信息", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            }
+                        }, "AndroidBridge")
                         setupClients(this, logger, desktopWidth, autoUsername, autoPassword, autoLogin, autoNavigate, { isDesktopMode }, { url -> inputText = url })
                         webViewRef = this
                         loadUrl(defaultUrl)
@@ -346,7 +457,42 @@ private fun setupClients(
 
         override fun onPageFinished(view: WebView?, url: String?) {
             super.onPageFinished(view, url)
-            logger("✅ [页面就绪] $url")
+            logger("[页面就绪] " + (url ?: ""))
+
+            // 注入网络监听钩子，页面自主发起课表请求时会被立即捕获
+            val interceptScript = """
+                javascript:(function() {
+                    if (window.__fc_injected) return;
+                    window.__fc_injected = true;
+                    var origOpen = XMLHttpRequest.prototype.open;
+                    var origSend = XMLHttpRequest.prototype.send;
+                    XMLHttpRequest.prototype.open = function(method, u) {
+                        this._fc_url = u;
+                        return origOpen.apply(this, arguments);
+                    };
+                    XMLHttpRequest.prototype.send = function(body) {
+                        var self = this;
+                        if (self._fc_url && self._fc_url.indexOf('getMyScheduleDetail') > -1) {
+                            if (window.AndroidBridge && window.AndroidBridge.log) {
+                                window.AndroidBridge.log('[自动监听] 页面发起课表请求: ' + self._fc_url + ', 负载: ' + body);
+                            }
+                            self.addEventListener('load', function() {
+                                if (window.AndroidBridge && window.AndroidBridge.log) {
+                                    window.AndroidBridge.log('[自动监听] 捕获到课表响应: HTTP ' + self.status + ', 长度: ' + (self.responseText ? self.responseText.length : 0));
+                                }
+                                if (self.responseText && self.responseText.indexOf('arrangedList') > -1) {
+                                    window.__FC_SCHEDULE_DATA__ = self.responseText;
+                                    if (window.AndroidBridge && window.AndroidBridge.log) {
+                                        window.AndroidBridge.log('[自动监听] 成功缓存课表数据，可随时点击右下角按钮提取');
+                                    }
+                                }
+                            });
+                        }
+                        return origSend.apply(this, arguments);
+                    };
+                })();
+            """.trimIndent()
+            view?.evaluateJavascript(interceptScript, null)
 
             if (isDesktopProvider()) {
                 val js = "javascript:(function(){var m=document.querySelector('meta[name=\"viewport\"]');if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}m.content='width=$desktopWidth';})();"

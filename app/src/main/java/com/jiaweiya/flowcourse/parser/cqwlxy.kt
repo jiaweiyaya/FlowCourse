@@ -3,11 +3,17 @@ package com.jiaweiya.flowcourse.parser
 import android.content.Context
 import android.net.Uri
 import com.jiaweiya.flowcourse.Course
+import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
 object CqwlxyParser {
-    fun parseCourseFromHtml(content: String): List<Course> {
+    fun parseCourseFromHtml(content: String, log: ((String) -> Unit)? = null): List<Course> {
+        val trimmed = content.trim()
+        if (trimmed.startsWith("{") && (trimmed.contains("getMyScheduleDetail") || trimmed.contains("arrangedList"))) {
+            return parseCourseFromJson(trimmed, log)
+        }
+        log?.invoke("[解析] 尝试从HTML中匹配表格...")
         val courses = mutableListOf<Course>()
         try {
             val trRegex = Regex("<tr.*?>([\\s\\S]*?)</tr>", setOf(RegexOption.IGNORE_CASE))
@@ -63,6 +69,175 @@ object CqwlxyParser {
             }
         } catch (e: Exception) { e.printStackTrace() }
         return mergeCourses(courses)
+    }
+
+    fun parseCourseFromJson(jsonStr: String, log: ((String) -> Unit)? = null): List<Course> {
+        val courses = mutableListOf<Course>()
+        try {
+            log?.invoke("[JSON解析] 开始解析课程JSON结构，数据长度: " + jsonStr.length)
+            val root = JSONObject(jsonStr)
+            val datas = root.optJSONObject("datas")
+            if (datas == null) {
+                log?.invoke("[JSON解析错误] JSON中未找到datas节点，内容可能为错误提示: " + jsonStr.take(150))
+                return emptyList()
+            }
+            val getMyScheduleDetail = datas.optJSONObject("getMyScheduleDetail")
+            if (getMyScheduleDetail == null) {
+                log?.invoke("[JSON解析错误] datas中未找到getMyScheduleDetail节点")
+                return emptyList()
+            }
+            val arrangedList = getMyScheduleDetail.optJSONArray("arrangedList")
+            if (arrangedList == null || arrangedList.length() == 0) {
+                log?.invoke("[JSON解析提示] arrangedList排课列表为空(长度为0)，请检查学年学期参数或页面是否已生成课表")
+                return emptyList()
+            }
+
+            log?.invoke("[JSON解析] arrangedList获取成功，包含 " + arrangedList.length() + " 项排课条目")
+
+            val colors = listOf(0xFFE3F2FD, 0xFFF3E5F5, 0xFFE8F5E9, 0xFFFFF3E0, 0xFFFFEBEE, 0xFFE0F7FA, 0xFFFBE9E7, 0xFFF0F4C3, 0xFFEDE7F6, 0xFFE8EAF6).map { it.toLong() }
+            val courseColors = mutableMapOf<String, Long>()
+
+            for (i in 0 until arrangedList.length()) {
+                val item = arrangedList.optJSONObject(i) ?: continue
+                val courseName = item.optString("courseName").trim()
+                if (courseName.isEmpty()) continue
+
+                val dayOfWeek = item.optInt("dayOfWeek", -1)
+                if (dayOfWeek !in 1..7) continue
+
+                val beginTime = item.optString("beginTime")
+                val endTime = item.optString("endTime")
+                val beginSection = if (item.has("beginSection") && !item.isNull("beginSection")) item.optInt("beginSection") else null
+                val endSection = if (item.has("endSection") && !item.isNull("endSection")) item.optInt("endSection") else null
+
+                val (startNode, endNode) = mapTimeToNodes(beginTime, endTime, beginSection, endSection)
+
+                val weekMask = item.optString("week")
+                val weeksAndTeachers = item.optString("weeksAndTeachers")
+                var weekList = parseWeeksFromMask(weekMask)
+                if (weekList.isEmpty() && weeksAndTeachers.isNotEmpty()) {
+                    weekList = parseWeeks(weeksAndTeachers)
+                }
+                if (weekList.isEmpty()) continue
+
+                val teacher = parseTeacher(weeksAndTeachers)
+                val room = parseRoom(item.optString("placeName"))
+                val credit = item.optString("credit", "")
+
+                val color = courseColors.getOrPut(courseName) { colors.random() }
+
+                courses.add(
+                    Course(
+                        id = 0,
+                        name = courseName,
+                        room = room,
+                        teacher = teacher,
+                        dayOfWeek = dayOfWeek,
+                        startNode = startNode,
+                        endNode = endNode,
+                        weekList = weekList,
+                        bgColor = color,
+                        textColor = 0xFF000000,
+                        credits = credit
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            log?.invoke("[JSON解析异常] " + e.message)
+        }
+        val merged = mergeCourses(courses)
+        log?.invoke("[JSON解析完成] 最终有效生成课程门数: " + merged.size)
+        return merged
+    }
+
+    private fun mapTimeToNodes(beginTime: String?, endTime: String?, beginSection: Int?, endSection: Int?): Pair<Int, Int> {
+        val startFromTime = when (beginTime?.trim()) {
+            "08:10" -> 1
+            "09:05" -> 2
+            "10:20" -> 3
+            "11:15" -> 4
+            "12:15" -> 5
+            "13:00" -> 6
+            "13:45" -> 7
+            "14:30" -> 8
+            "15:25" -> 9
+            "16:20" -> 10
+            "17:15" -> 11
+            "18:00", "18:25" -> 12
+            "19:20" -> 13
+            "20:15" -> 14
+            "21:10" -> 15
+            "22:05" -> 16
+            else -> null
+        }
+
+        val endFromTime = when (endTime?.trim()) {
+            "08:55" -> 1
+            "09:50" -> 2
+            "11:05" -> 3
+            "12:00" -> 4
+            "13:00" -> 5
+            "13:45" -> 6
+            "14:30" -> 7
+            "15:15" -> 8
+            "16:10" -> 9
+            "17:05" -> 10
+            "18:00" -> 11
+            "19:10", "19:20" -> 12
+            "20:05" -> 13
+            "21:00" -> 14
+            "21:55" -> 15
+            "22:50" -> 16
+            else -> null
+        }
+
+        if (startFromTime != null && endFromTime != null) {
+            return Pair(startFromTime, endFromTime)
+        }
+
+        fun sectionToNode(sec: Int): Int = when (sec) {
+            1 -> 1; 2 -> 2; 3 -> 3; 4 -> 4
+            5 -> 8; 6 -> 9; 7 -> 10; 8 -> 11
+            9 -> 13; 10 -> 14; 11 -> 15; 12 -> 16
+            else -> sec.coerceIn(1, 16)
+        }
+
+        val s = startFromTime ?: (beginSection?.let { sectionToNode(it) } ?: 1)
+        val e = endFromTime ?: (endSection?.let { sectionToNode(it) } ?: s)
+        return Pair(s, maxOf(s, e))
+    }
+
+    private fun parseWeeksFromMask(weekMask: String?): List<Int> {
+        if (weekMask.isNullOrEmpty()) return emptyList()
+        val list = mutableListOf<Int>()
+        for (i in weekMask.indices) {
+            if (weekMask[i] == '1') {
+                list.add(i + 1)
+            }
+        }
+        return list
+    }
+
+    private fun parseTeacher(weeksAndTeachers: String?): String {
+        if (weeksAndTeachers.isNullOrBlank()) return ""
+        return weeksAndTeachers.split(";")
+            .map { part ->
+                val afterSlash = if (part.contains("/")) part.substringAfter("/") else part
+                afterSlash.replace(Regex("\\[.*?\\]"), "").trim()
+            }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .joinToString(", ")
+    }
+
+    private fun parseRoom(placeName: String?): String {
+        if (placeName.isNullOrBlank()) return ""
+        return placeName.split(";")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .joinToString("; ")
     }
 
     fun parseCourseFromFile(context: Context, uri: Uri): List<Course> {
@@ -206,80 +381,56 @@ object CqwlxyParser {
     fun getAutoNavigateScript(url: String, autoNavigate: Boolean): String? {
         if (!autoNavigate) return null
 
-        val isPortalPage = url.contains("cqwu.edu.cn") && url.contains("new/index.html")
-
-        if (isPortalPage) {
+        val isHomeApp = url.contains("jwapp/sys/homeapp/home/index.html")
+        if (isHomeApp) {
             return """
             javascript:(function() {
-                console.log('[JS] 正在跳转教学管理系统...');
-                var appId = '5299144291521305'; 
-                var timestamp = new Date().getTime();
-                
-                // 获取当前页面的前缀路径
-                // 直连：https://ehall.cqwu.edu.cn/new/index.html -> 拿到 https://ehall.cqwu.edu.cn
-                // WebVPN：https://webvpn.xxx/http/77726476/new/index.html -> 拿到 https://webvpn.xxx/http/77726476
-                var basePath = window.location.href.split('/new/')[0];
-                
-                // 发送记录请求，携带完整的当前环境上下文
-                var reqUrl = basePath + '/jsonp/sendRecUseApp.json?appId=' + appId + '&_=' + timestamp;
-                if (typeof jQuery !== 'undefined') {
-                    jQuery.ajax({
-                        url: reqUrl,
-                        type: 'GET',
-                        dataType: 'json',
-                        success: function() { console.log('记录发送成功'); }
-                    });
-                } else {
-                    fetch(reqUrl);
-                }
-
-                // 延迟跳转，利用 basePath 保证在 WebVPN 环境内跳转
-                var targetUrl = basePath + '/appShow?appId=' + appId;
-                console.log('[JS] 准备自适应跳转到: ' + targetUrl);
-                
+                console.log('[JS] 检测到教务主页，正在跳转到课表应用...');
+                var basePath = window.location.href.split('/jwapp/')[0] + '/jwapp';
+                var targetUrl = basePath + '/sys/kbapp/*default/index.do';
                 setTimeout(function() {
-                    // 尝试在当前页覆盖跳转
                     window.location.replace(targetUrl);
                 }, 300);
             })();
-        """.trimIndent()
+            """.trimIndent()
+        }
+
+        val isPortalPage = url.contains("cqwu.edu.cn") && url.contains("new/index.html")
+        if (isPortalPage) {
+            return """
+            javascript:(function() {
+                console.log('[JS] 处于门户主页，正在尝试跳转教务服务...');
+                var targetUrl = 'https://jwfw.cqwu.edu.cn/jwapp/sys/homeapp/home/index.html?av=&contextPath=/jwapp#/';
+                setTimeout(function() {
+                    window.location.replace(targetUrl);
+                }, 300);
+            })();
+            """.trimIndent()
         }
         return null
     }
 
     // 静默自动更新专用的多级路由跳转脚本
     fun getSilentAutoNavigateScript(url: String): String? {
-        val isPortalPage = url.contains("cqwu.edu.cn") && url.contains("new/index.html")
-        val isJwmisHome = url.contains("cqwu.edu.cn") && url.contains("cqwljw/frame/homes.action")
-
-        // 如果在学生后台页面，静默跳转到教务系统
-        if (isPortalPage) {
+        val isHomeApp = url.contains("jwapp/sys/homeapp/home/index.html")
+        if (isHomeApp) {
             return """
             javascript:(function() {
-                console.log('[JS] [静默] 处于学生后台，开始跳转至教学管理系统...');
-                var appId = '5299144291521305'; 
-                var timestamp = new Date().getTime();
-                var basePath = window.location.href.split('/new/')[0];
-                var reqUrl = basePath + '/jsonp/sendRecUseApp.json?appId=' + appId + '&_=' + timestamp;
-                if (typeof jQuery !== 'undefined') {
-                    jQuery.ajax({ url: reqUrl, type: 'GET', dataType: 'json' });
-                } else {
-                    fetch(reqUrl);
-                }
-                var targetUrl = basePath + '/appShow?appId=' + appId;
+                console.log('[JS] [静默] 处于教务服务主页，开始跳转至我的课表应用...');
+                var basePath = window.location.href.split('/jwapp/')[0] + '/jwapp';
+                var targetUrl = basePath + '/sys/kbapp/*default/index.do';
                 setTimeout(function() { window.location.replace(targetUrl); }, 300);
             })();
             """.trimIndent()
         }
 
-        // 如果已经进入教务系统主页，直接跳跃到课表所在页面
-        if (isJwmisHome) {
+        val isPortalPage = url.contains("cqwu.edu.cn") && url.contains("new/index.html")
+        if (isPortalPage) {
             return """
             javascript:(function() {
-                console.log('[JS] [静默] 进入教学管理系统，跳转至课表页...');
-                var basePath = window.location.href.split('/cqwljw/')[0];
-                var targetUrl = basePath + '/cqwljw/student/xkjg.wdkb.jsp?menucode=S20301';
-                setTimeout(function() { window.location.replace(targetUrl); }, 500);
+                console.log('[JS] [静默] 处于门户主页，开始跳转至教务服务主页...');
+                var targetUrl = 'https://jwfw.cqwu.edu.cn/jwapp/sys/homeapp/home/index.html?av=&contextPath=/jwapp#/';
+                setTimeout(function() { window.location.replace(targetUrl); }, 300);
             })();
             """.trimIndent()
         }
@@ -288,60 +439,32 @@ object CqwlxyParser {
 
     // 静默自动更新专用的提取课表与回传脚本
     fun getSilentExtractScript(url: String): String? {
-        val isTimetablePage = url.contains("xkjg.wdkb.jsp")
-
-        // 3. 如果在课表页面，轮询表格并主动通过 AndroidBridge 传回安卓端
-        if (isTimetablePage) {
+        val isKbApp = url.contains("jwapp/sys/kbapp")
+        if (isKbApp) {
             return """
             javascript:(function() {
-                console.log('[JS] [静默] 已抵达课表页，等待数据...');
-                
-                // 深度遍历寻找课表
-                function findTable(doc) {
-                    if(!doc) return null;
-                    var t = doc.getElementById('mytable');
-                    if(t) return t.outerHTML;
-                    var ts = doc.getElementsByTagName('table');
-                    for(var i=0; i<ts.length; i++){
-                        if(ts[i].innerText.indexOf('星期一') > -1 && ts[i].innerText.indexOf('星期二') > -1) {
-                            return ts[i].outerHTML;
-                        }
-                    }
-                    return null;
-                }
-                
-                function walk(win, depth) {
-                    if(depth > 5) return null;
-                    try {
-                        var r = findTable(win.document);
-                        if(r) return r;
-                    } catch(e){}
-                    try {
-                        for(var i=0; i<win.frames.length; i++){
-                            var fr = walk(win.frames[i], depth+1);
-                            if(fr) return fr;
-                        }
-                    } catch(e){}
-                    return null;
-                }
+                console.log('[JS] [静默] 已抵达课表应用，正在调用接口拉取课程数据...');
+                var basePath = window.location.href.split('/jwapp/')[0] + '/jwapp';
+                var targetUrl = basePath + '/sys/kbapp/api/wdkbcx/getMyScheduleDetail.do';
 
-                var checkCount = 0;
-                var timer = setInterval(function() {
-                    checkCount++;
-                    // 利用递归穿透寻找课表的 HTML
-                    var tableHtml = walk(window, 0);
-                    
-                    if (tableHtml) {
-                        clearInterval(timer);
-                        console.log('✅ [JS] [静默] 提取成功！正在回传...');
-                        if (window.AndroidBridge) {
-                            window.AndroidBridge.onTimetableExtracted(tableHtml);
-                        }
-                    } else if (checkCount > 30) {
-                        clearInterval(timer);
-                        console.log('❌ [JS] [静默] 超时：未找到课表表格');
+                fetch(targetUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: 'XNXQDM=&XQDM='
+                })
+                .then(function(res) { return res.text(); })
+                .then(function(text) {
+                    console.log('[JS] [静默] 接口返回数据，正在回传...');
+                    if (window.AndroidBridge) {
+                        window.AndroidBridge.onTimetableExtracted(text);
                     }
-                }, 500);
+                })
+                .catch(function(err) {
+                    console.log('[JS] [静默] 提取课表接口异常: ' + err);
+                });
             })();
             """.trimIndent()
         }

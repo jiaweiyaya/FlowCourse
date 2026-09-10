@@ -355,6 +355,7 @@ class MainActivity : ComponentActivity() {
             var autoPassword by remember { mutableStateOf(sharedPrefs.getString("auto_password", "") ?: "") }
             var isAutoLoginEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_login", false)) }
             var isAutoNavigateEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_navigate", false)) }
+            var isAutoCaptureEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_capture_schedule", false)) }
             var defaultDesktopMode by remember { mutableStateOf(sharedPrefs.getBoolean("default_desktop_mode", false)) }
 
             var preferredConflictIds by remember { mutableStateOf(sharedPrefs.getStringSet("preferred_conflict_ids", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()) }
@@ -398,7 +399,7 @@ class MainActivity : ComponentActivity() {
                 bgImageUri, bgOpacity, highlightToday, showTimeLine, showConflictWarning, conflictColor,
                 preferredConflictIds, realTimeSlider, autoCheckUpdate, showWatermark,
                 showCourseBorder, courseBorderColor,
-                autoUsername, autoPassword, isAutoLoginEnabled, isAutoNavigateEnabled, defaultDesktopMode,
+                autoUsername, autoPassword, isAutoLoginEnabled, isAutoNavigateEnabled, isAutoCaptureEnabled, defaultDesktopMode,
                 themeColor,timeLineColor,
                 updateChannel
             ) {
@@ -413,6 +414,7 @@ class MainActivity : ComponentActivity() {
                         .putString("auto_password", autoPassword)
                         .putBoolean("auto_login", isAutoLoginEnabled)
                         .putBoolean("auto_navigate", isAutoNavigateEnabled)
+                        .putBoolean("auto_capture_schedule", isAutoCaptureEnabled)
                         .putInt("desktop_width", desktopWidth)
                         .putInt("desktop_height", desktopHeight)
                         .putBoolean("highlight_today", highlightToday)
@@ -692,11 +694,13 @@ class MainActivity : ComponentActivity() {
                                     savedPassword = autoPassword,
                                     savedAutoLogin = isAutoLoginEnabled,
                                     savedAutoNavigate = isAutoNavigateEnabled,
-                                    onValueChange = { user, pass, login, nav ->
+                                    savedAutoCapture = isAutoCaptureEnabled,
+                                    onValueChange = { user, pass, login, nav, capture ->
                                         autoUsername = user
                                         autoPassword = pass
                                         isAutoLoginEnabled = login
                                         isAutoNavigateEnabled = nav
+                                        isAutoCaptureEnabled = capture
                                     },
                                     onBackClick = { navController.popBackStack() }
                                 )
@@ -860,6 +864,7 @@ class MainActivity : ComponentActivity() {
                                 BrowserScreen(
                                     defaultUrl = defaultBrowserUrl, desktopWidth = desktopWidth, desktopHeight = desktopHeight,
                                     autoUsername = autoUsername, autoPassword = autoPassword, autoLogin = isAutoLoginEnabled, autoNavigate = isAutoNavigateEnabled,
+                                    autoCapture = isAutoCaptureEnabled,
                                     defaultDesktopMode = defaultDesktopMode,
                                     onBackClick = { navController.popBackStack() },
                                     onImportCourses = { importedCourses ->
@@ -923,6 +928,7 @@ class MainActivity : ComponentActivity() {
                                         autoPassword = sharedPrefs.getString("auto_password", "") ?: ""
                                         isAutoLoginEnabled = sharedPrefs.getBoolean("auto_login", false)
                                         isAutoNavigateEnabled = sharedPrefs.getBoolean("auto_navigate", false)
+                                        isAutoCaptureEnabled = sharedPrefs.getBoolean("auto_capture_schedule", false)
                                         defaultDesktopMode = sharedPrefs.getBoolean("default_desktop_mode", false)
                                     },
                                     onBackClick = {

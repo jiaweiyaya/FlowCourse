@@ -68,6 +68,7 @@ fun BrowserScreen(
     autoPassword: String,
     autoLogin: Boolean,
     autoNavigate: Boolean,
+    autoCapture: Boolean,
     defaultDesktopMode: Boolean,
     onBackClick: () -> Unit,
     onImportCourses: (List<Course>) -> Unit
@@ -328,6 +329,28 @@ fun BrowserScreen(
                             }
 
                             @JavascriptInterface
+                            fun isAutoCapture(): Boolean {
+                                return autoCapture
+                            }
+
+                            @JavascriptInterface
+                            fun onAutoCaptured(data: String) {
+                                coroutineScope.launch(Dispatchers.Main) {
+                                    if (data.isNotBlank()) {
+                                        logger("[自动捕获] 成功截获课表POST数据，正在自动解析...")
+                                        val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(data, logger) }
+                                        if (newCourses.isNotEmpty()) {
+                                            onImportCourses(newCourses)
+                                            Toast.makeText(context, "自动捕获课表成功！已导入 " + newCourses.size + " 节课", Toast.LENGTH_SHORT).show()
+                                            onBackClick()
+                                        } else {
+                                            logger("[自动捕获] 拦截到的数据未能解析出有效课程")
+                                        }
+                                    }
+                                }
+                            }
+
+                            @JavascriptInterface
                             fun onTimetableExtracted(data: String) {
                                 coroutineScope.launch(Dispatchers.Main) {
                                     if (data.isNotBlank()) {
@@ -345,7 +368,7 @@ fun BrowserScreen(
                                 }
                             }
                         }, "AndroidBridge")
-                        setupClients(this, logger, desktopWidth, autoUsername, autoPassword, autoLogin, autoNavigate, { isDesktopMode }, { url -> inputText = url })
+                        setupClients(this, logger, desktopWidth, autoUsername, autoPassword, autoLogin, autoNavigate, autoCapture, { isDesktopMode }, { url -> inputText = url })
                         webViewRef = this
                         loadUrl(defaultUrl)
                     }
@@ -412,6 +435,7 @@ private fun setupClients(
     autoPassword: String,
     autoLogin: Boolean,
     autoNavigate: Boolean,
+    autoCapture: Boolean,
     isDesktopProvider: () -> Boolean,
     onUrlChanged: (String) -> Unit
 ) {
@@ -480,10 +504,36 @@ private fun setupClients(
                                 if (window.AndroidBridge && window.AndroidBridge.log) {
                                     window.AndroidBridge.log('[自动监听] 捕获到课表响应: HTTP ' + self.status + ', 长度: ' + (self.responseText ? self.responseText.length : 0));
                                 }
-                                if (self.responseText && self.responseText.indexOf('arrangedList') > -1) {
-                                    window.__FC_SCHEDULE_DATA__ = self.responseText;
-                                    if (window.AndroidBridge && window.AndroidBridge.log) {
-                                        window.AndroidBridge.log('[自动监听] 成功缓存课表数据，可随时点击右下角按钮提取');
+                                var responseData = self.responseText || '';
+                                if (!responseData && self.response && typeof self.response === 'string') {
+                                    responseData = self.response;
+                                }
+                                if (responseData && responseData.indexOf('arrangedList') > -1) {
+                                    window.__FC_SCHEDULE_DATA__ = responseData;
+
+                                    var isAutoEnabled = false;
+                                    try {
+                                        if (window.AndroidBridge && window.AndroidBridge.isAutoCapture) {
+                                            isAutoEnabled = window.AndroidBridge.isAutoCapture();
+                                        } else {
+                                            isAutoEnabled = ${'$'}autoCapture;
+                                        }
+                                    } catch(e) {
+                                        isAutoEnabled = ${'$'}autoCapture;
+                                    }
+
+                                    if (isAutoEnabled && !window.__FC_AUTO_CAPTURED__) {
+                                        window.__FC_AUTO_CAPTURED__ = true;
+                                        if (window.AndroidBridge && window.AndroidBridge.log) {
+                                            window.AndroidBridge.log('[自动监听] 自动捕获已开启，正立即触发自动解析与导入...');
+                                        }
+                                        if (window.AndroidBridge && window.AndroidBridge.onAutoCaptured) {
+                                            window.AndroidBridge.onAutoCaptured(responseData);
+                                        }
+                                    } else {
+                                        if (window.AndroidBridge && window.AndroidBridge.log) {
+                                            window.AndroidBridge.log('[自动监听] 成功缓存课表数据，可随时点击右下角按钮提取');
+                                        }
                                     }
                                 }
                             });

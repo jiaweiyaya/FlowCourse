@@ -177,6 +177,7 @@ fun ExportBackupScreen(
                         sharedPrefs.getString("auto_password", null)?.let { catMap["auto_password"] = it }
                         catMap["auto_login"] = sharedPrefs.getBoolean("auto_login", false)
                         catMap["auto_navigate"] = sharedPrefs.getBoolean("auto_navigate", false)
+                        catMap["auto_capture_schedule"] = sharedPrefs.getBoolean("auto_capture_schedule", false)
                     }
                 }
                 settingsMap[category] = catMap

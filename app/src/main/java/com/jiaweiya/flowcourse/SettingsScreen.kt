@@ -1905,18 +1905,21 @@ fun AutoLoginSettingsScreen(
     savedPassword: String,
     savedAutoLogin: Boolean,
     savedAutoNavigate: Boolean,
-    onValueChange: (String, String, Boolean, Boolean) -> Unit,
+    savedAutoCapture: Boolean,
+    onValueChange: (String, String, Boolean, Boolean, Boolean) -> Unit,
     onBackClick: () -> Unit
 ) {
     val sysDefaultUser = ""
     val sysDefaultPass = ""
     val sysDefaultLogin = false
     val sysDefaultNav = false
+    val sysDefaultCapture = false
 
     val isNotDefault = savedUsername != sysDefaultUser ||
             savedPassword != sysDefaultPass ||
             savedAutoLogin != sysDefaultLogin ||
-            savedAutoNavigate != sysDefaultNav
+            savedAutoNavigate != sysDefaultNav ||
+            savedAutoCapture != sysDefaultCapture
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
@@ -1942,7 +1945,7 @@ fun AutoLoginSettingsScreen(
                         exit = fadeOut() + shrinkHorizontally()
                     ) {
                         TextButton(onClick = {
-                            onValueChange(sysDefaultUser, sysDefaultPass, sysDefaultLogin, sysDefaultNav)
+                            onValueChange(sysDefaultUser, sysDefaultPass, sysDefaultLogin, sysDefaultNav, sysDefaultCapture)
                         }) {
                             Text("恢复默认", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                         }
@@ -1972,7 +1975,8 @@ fun AutoLoginSettingsScreen(
                     onValueChange = {
                         val loginVal = if (it.isEmpty()) false else savedAutoLogin
                         val navVal = if (it.isEmpty()) false else savedAutoNavigate
-                        onValueChange(it, savedPassword, loginVal, navVal)
+                        val capVal = if (it.isEmpty()) false else savedAutoCapture
+                        onValueChange(it, savedPassword, loginVal, navVal, capVal)
                     },
                     label = { Text("教务系统账号") },
                     modifier = Modifier
@@ -1981,7 +1985,7 @@ fun AutoLoginSettingsScreen(
                             // 当从有焦点变为无焦点（即退出输入）
                             if (usernameHasFocus && !focusState.isFocused) {
                                 if (savedUsername.isNotEmpty() && savedPassword.isNotEmpty()) {
-                                    onValueChange(savedUsername, savedPassword, true, true)
+                                    onValueChange(savedUsername, savedPassword, true, true, true)
                                 }
                             }
                             usernameHasFocus = focusState.isFocused
@@ -1994,7 +1998,7 @@ fun AutoLoginSettingsScreen(
                     value = savedPassword,
                     onValueChange = {
                         val loginVal = if (it.isEmpty()) false else savedAutoLogin
-                        onValueChange(savedUsername, it, loginVal, savedAutoNavigate)
+                        onValueChange(savedUsername, it, loginVal, savedAutoNavigate, savedAutoCapture)
                     },
                     label = { Text("教务系统密码") },
                     visualTransformation = PasswordVisualTransformation(),
@@ -2005,7 +2009,7 @@ fun AutoLoginSettingsScreen(
                             // 当从有焦点变为无焦点（即退出输入）
                             if (passwordHasFocus && !focusState.isFocused) {
                                 if (savedUsername.isNotEmpty() && savedPassword.isNotEmpty()) {
-                                    onValueChange(savedUsername, savedPassword, true, true)
+                                    onValueChange(savedUsername, savedPassword, true, true, true)
                                 }
                             }
                             passwordHasFocus = focusState.isFocused
@@ -2026,13 +2030,10 @@ fun AutoLoginSettingsScreen(
                     Switch(
                         checked = savedAutoLogin,
                         onCheckedChange = { checked ->
-                            // 如果开关被打开，且账号和密码都不为空，则自动打开下面的开关
-                            val navVal = if (checked) {
-                                if (savedUsername.isNotEmpty() && savedPassword.isNotEmpty()) true else savedAutoNavigate
-                            } else {
-                                false
-                            }
-                            onValueChange(savedUsername, savedPassword, checked, navVal)
+                            val hasUserAndPass = savedUsername.isNotEmpty() && savedPassword.isNotEmpty()
+                            val navVal = if (checked) (if (hasUserAndPass) true else savedAutoNavigate) else false
+                            val capVal = if (checked) (if (hasUserAndPass) true else savedAutoCapture) else false
+                            onValueChange(savedUsername, savedPassword, checked, navVal, capVal)
                         },
                         enabled = savedUsername.isNotEmpty() && savedPassword.isNotEmpty(),
                         modifier = Modifier.scale(1.0f)
@@ -2051,7 +2052,28 @@ fun AutoLoginSettingsScreen(
                     }
                     Switch(
                         checked = savedAutoNavigate,
-                        onCheckedChange = { onValueChange(savedUsername, savedPassword, savedAutoLogin, it) },
+                        onCheckedChange = { checked ->
+                            val capVal = if (checked) true else savedAutoCapture
+                            onValueChange(savedUsername, savedPassword, savedAutoLogin, checked, capVal)
+                        },
+                        enabled = savedAutoLogin,
+                        modifier = Modifier.scale(1.0f)
+                    )
+                }
+
+                // 自动捕获课表POST请求开关
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("自动捕获课表POST请求", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Text("需开启自动回车登录，检测到课表数据时自动导入并返回", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = savedAutoCapture,
+                        onCheckedChange = { onValueChange(savedUsername, savedPassword, savedAutoLogin, savedAutoNavigate, it) },
                         enabled = savedAutoLogin,
                         modifier = Modifier.scale(1.0f)
                     )

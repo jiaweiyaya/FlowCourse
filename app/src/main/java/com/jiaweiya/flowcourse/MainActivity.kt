@@ -592,6 +592,7 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToEditTimeProfile = { profileId -> navController.navigate("EditTimeProfile/$profileId") },
                                     onNavigateToCourseList = { id -> navController.navigate("CourseList/$id") },
                                     onNavigateToBrowser = { navController.navigate("Browser") },
+                                    onNavigateToBrowserQuick = { navController.navigate("Browser?hideImport=true") },
                                     onNavigateToAbout = { navController.navigate("About") },
                                     onImportCourses = { courses -> pendingImportCourses = courses },
                                     showCourseBorder = showCourseBorder,
@@ -872,16 +873,22 @@ class MainActivity : ComponentActivity() {
                             }
 
                             composable(
-                                route = "Browser",
+                                route = "Browser?hideImport={hideImport}",
+                                arguments = listOf(navArgument("hideImport") {
+                                    type = NavType.BoolType
+                                    defaultValue = false
+                                }),
                                 enterTransition = { slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Up, animationSpec = tween(400)) },
                                 popExitTransition = { slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.Down, animationSpec = tween(400)) }
-                            ) {
+                            ) { backStackEntry ->
+                                val hideImport = backStackEntry.arguments?.getBoolean("hideImport") ?: false
                                 BrowserScreen(
                                     defaultUrl = defaultBrowserUrl, desktopWidth = desktopWidth, desktopHeight = desktopHeight,
                                     autoUsername = autoUsername, autoPassword = autoPassword, autoLogin = isAutoLoginEnabled, autoNavigate = isAutoNavigateEnabled,
                                     autoCapture = isAutoCaptureEnabled,
                                     autoMergeAdjacent = autoMergeAdjacent,
                                     defaultDesktopMode = defaultDesktopMode,
+                                    showImportButton = !hideImport,
                                     onBackClick = { navController.popBackStack() },
                                     onImportCourses = { importedCourses ->
                                         coroutineScope.launch {
@@ -1101,7 +1108,7 @@ fun TimetableScreen(
     onTimetableSelect: (Int) -> Unit, onNewTimetable: () -> Unit, onDeleteTimetable: (Int) -> Unit, onReorderTimetables: (List<TimetableData>) -> Unit,
     onNavigateToSettings: () -> Unit, onNavigateToAddCourse: () -> Unit, onNavigateToEditCourse: (Int) -> Unit,
     onNavigateToEditTimetable: (Int) -> Unit, onNavigateToEditTimeProfile: (Int) -> Unit,
-    onNavigateToCourseList: (Int) -> Unit, onNavigateToBrowser: () -> Unit, onNavigateToAbout: () -> Unit,
+    onNavigateToCourseList: (Int) -> Unit, onNavigateToBrowser: () -> Unit, onNavigateToBrowserQuick: () -> Unit, onNavigateToAbout: () -> Unit,
     onImportCourses: (List<Course>) -> Unit
 ) {
     val activeTimetable = timetables.find { it.id == activeTimetableId } ?: timetables.firstOrNull()
@@ -1238,8 +1245,13 @@ fun TimetableScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
-                        Icon(imageVector = Icons.Default.Menu, contentDescription = "打开菜单", modifier = Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onBackground)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
+                            Icon(imageVector = Icons.Default.Menu, contentDescription = "打开菜单", modifier = Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onBackground)
+                        }
+                        IconButton(onClick = onNavigateToBrowserQuick) {
+                            Icon(imageVector = Icons.Default.Language, contentDescription = "快捷访问教务系统", modifier = Modifier.size(26.dp), tint = MaterialTheme.colorScheme.onBackground)
+                        }
                     }
 
                     Column(

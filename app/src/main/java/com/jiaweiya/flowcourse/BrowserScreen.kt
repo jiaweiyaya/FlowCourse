@@ -71,6 +71,7 @@ fun BrowserScreen(
     autoCapture: Boolean,
     autoMergeAdjacent: Boolean,
     defaultDesktopMode: Boolean,
+    showImportButton: Boolean = true,
     onBackClick: () -> Unit,
     onImportCourses: (List<Course>) -> Unit
 ) {
@@ -259,49 +260,51 @@ fun BrowserScreen(
                     }
                 },
                 floatingActionButton = {
-                    val handleCourseImport: (String) -> Unit = { rawResult ->
-                        coroutineScope.launch {
-                            if (rawResult.isBlank() || rawResult == "null" || rawResult == "\"\"" || rawResult == "\"FETCHING\"" || rawResult == "FETCHING" || rawResult == "\"CACHED\"" || rawResult == "CACHED") {
-                                return@launch
-                            }
-
-                            var content = rawResult
-                            try {
-                                content = Gson().fromJson(rawResult, String::class.java)
-                            } catch (e: Exception) {
-                                if (content.startsWith("\"") && content.endsWith("\"")) {
-                                    content = content.substring(1, content.length - 1)
-                                        .replace("\\\"", "\"")
-                                        .replace("\\n", "\n")
-                                        .replace("\\t", "\t")
-                                        .replace("\\u003C", "<")
+                    if (showImportButton) {
+                        val handleCourseImport: (String) -> Unit = { rawResult ->
+                            coroutineScope.launch {
+                                if (rawResult.isBlank() || rawResult == "null" || rawResult == "\"\"" || rawResult == "\"FETCHING\"" || rawResult == "FETCHING" || rawResult == "\"CACHED\"" || rawResult == "CACHED") {
+                                    return@launch
                                 }
-                            }
 
-                            logger("[解析入口] 正在提交给解析器处理，长度: " + content.length)
-                            val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(content, logger, autoMergeAdjacent) }
-                            if (newCourses.isNotEmpty()) {
-                                onImportCourses(newCourses)
-                                Toast.makeText(context, "大功告成！导入了 ${newCourses.size} 节课", Toast.LENGTH_SHORT).show()
-                                onBackClick()
-                            } else {
-                                logger("[解析失败] 未能识别出课程，请点击右上角警告图标查看日志详情")
-                                Toast.makeText(context, "解析失败：未能识别到有效课程信息", Toast.LENGTH_LONG).show()
+                                var content = rawResult
+                                try {
+                                    content = Gson().fromJson(rawResult, String::class.java)
+                                } catch (e: Exception) {
+                                    if (content.startsWith("\"") && content.endsWith("\"")) {
+                                        content = content.substring(1, content.length - 1)
+                                            .replace("\\\"", "\"")
+                                            .replace("\\n", "\n")
+                                            .replace("\\t", "\t")
+                                            .replace("\\u003C", "<")
+                                    }
+                                }
+
+                                logger("[解析入口] 正在提交给解析器处理，长度: " + content.length)
+                                val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(content, logger, autoMergeAdjacent) }
+                                if (newCourses.isNotEmpty()) {
+                                    onImportCourses(newCourses)
+                                    Toast.makeText(context, "大功告成！导入了 ${newCourses.size} 节课", Toast.LENGTH_SHORT).show()
+                                    onBackClick()
+                                } else {
+                                    logger("[解析失败] 未能识别出课程，请点击右上角警告图标查看日志详情")
+                                    Toast.makeText(context, "解析失败：未能识别到有效课程信息", Toast.LENGTH_LONG).show()
+                                }
                             }
                         }
-                    }
 
-                    FloatingActionButton(
-                        onClick = {
-                            webViewRef?.evaluateJavascript(extractScript) { result ->
-                                if (result != null && result != "\"FETCHING\"" && result != "FETCHING") {
-                                    handleCourseImport(result)
+                        FloatingActionButton(
+                            onClick = {
+                                webViewRef?.evaluateJavascript(extractScript) { result ->
+                                    if (result != null && result != "\"FETCHING\"" && result != "FETCHING") {
+                                        handleCourseImport(result)
+                                    }
                                 }
-                            }
-                        },
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Icon(Icons.Default.Download, "提取课表")
+                            },
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Icon(Icons.Default.Download, "提取课表")
+                        }
                     }
                 }
             )
@@ -331,11 +334,13 @@ fun BrowserScreen(
 
                             @JavascriptInterface
                             fun isAutoCapture(): Boolean {
-                                return autoCapture
+                                // 如果当前处于快捷纯浏览模式（showImportButton 为 false），强制禁止任何自动捕获
+                                return autoCapture && showImportButton
                             }
 
                             @JavascriptInterface
                             fun onAutoCaptured(data: String) {
+                                if (!showImportButton) return
                                 coroutineScope.launch(Dispatchers.Main) {
                                     if (data.isNotBlank()) {
                                         logger("[自动捕获] 成功截获课表POST数据，正在自动解析...")
@@ -353,6 +358,7 @@ fun BrowserScreen(
 
                             @JavascriptInterface
                             fun onTimetableExtracted(data: String) {
+                                if (!showImportButton) return
                                 coroutineScope.launch(Dispatchers.Main) {
                                     if (data.isNotBlank()) {
                                         logger("[Bridge回调] 收到数据传输，准备解析...")
@@ -369,7 +375,8 @@ fun BrowserScreen(
                                 }
                             }
                         }, "AndroidBridge")
-                        setupClients(this, logger, desktopWidth, autoUsername, autoPassword, autoLogin, autoNavigate, autoCapture, { isDesktopMode }, { url -> inputText = url })
+                        val effectiveAutoCapture = autoCapture && showImportButton
+                        setupClients(this, logger, desktopWidth, autoUsername, autoPassword, autoLogin, autoNavigate, effectiveAutoCapture, { isDesktopMode }, { url -> inputText = url })
                         webViewRef = this
                         loadUrl(defaultUrl)
                     }

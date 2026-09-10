@@ -69,6 +69,7 @@ fun BrowserScreen(
     autoLogin: Boolean,
     autoNavigate: Boolean,
     autoCapture: Boolean,
+    autoMergeAdjacent: Boolean,
     defaultDesktopMode: Boolean,
     onBackClick: () -> Unit,
     onImportCourses: (List<Course>) -> Unit
@@ -278,7 +279,7 @@ fun BrowserScreen(
                             }
 
                             logger("[解析入口] 正在提交给解析器处理，长度: " + content.length)
-                            val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(content, logger) }
+                            val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(content, logger, autoMergeAdjacent) }
                             if (newCourses.isNotEmpty()) {
                                 onImportCourses(newCourses)
                                 Toast.makeText(context, "大功告成！导入了 ${newCourses.size} 节课", Toast.LENGTH_SHORT).show()
@@ -338,7 +339,7 @@ fun BrowserScreen(
                                 coroutineScope.launch(Dispatchers.Main) {
                                     if (data.isNotBlank()) {
                                         logger("[自动捕获] 成功截获课表POST数据，正在自动解析...")
-                                        val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(data, logger) }
+                                        val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(data, logger, autoMergeAdjacent) }
                                         if (newCourses.isNotEmpty()) {
                                             onImportCourses(newCourses)
                                             Toast.makeText(context, "自动捕获课表成功！已导入 " + newCourses.size + " 节课", Toast.LENGTH_SHORT).show()
@@ -355,7 +356,7 @@ fun BrowserScreen(
                                 coroutineScope.launch(Dispatchers.Main) {
                                     if (data.isNotBlank()) {
                                         logger("[Bridge回调] 收到数据传输，准备解析...")
-                                        val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(data, logger) }
+                                        val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(data, logger, autoMergeAdjacent) }
                                         if (newCourses.isNotEmpty()) {
                                             onImportCourses(newCourses)
                                             Toast.makeText(context, "大功告成！导入了 ${newCourses.size} 节课", Toast.LENGTH_SHORT).show()

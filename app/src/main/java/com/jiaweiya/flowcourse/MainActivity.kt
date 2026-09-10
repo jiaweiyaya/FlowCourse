@@ -340,6 +340,7 @@ class MainActivity : ComponentActivity() {
             var conflictColor by remember { mutableLongStateOf(sharedPrefs.getLong("conflict_color", 0xFFFF0000)) }
             var realTimeSlider by remember { mutableStateOf(sharedPrefs.getBoolean("real_time_slider", false)) }
             var parserId by remember { mutableIntStateOf(sharedPrefs.getInt("parser_id", 1)) }
+            var autoMergeAdjacent by remember { mutableStateOf(sharedPrefs.getBoolean("auto_merge_adjacent", true)) }
 
             var updateChannel by remember { mutableIntStateOf(sharedPrefs.getInt("update_channel", 0)) }
             var autoCheckUpdate by remember { mutableStateOf(sharedPrefs.getBoolean("auto_check_update", true)) }
@@ -424,6 +425,7 @@ class MainActivity : ComponentActivity() {
                         .putStringSet("preferred_conflict_ids", preferredConflictIds.map { it.toString() }.toSet())
                         .putBoolean("real_time_slider", realTimeSlider)
                         .putInt("parser_id", parserId)
+                        .putBoolean("auto_merge_adjacent", autoMergeAdjacent)
                         .putBoolean("auto_check_update", autoCheckUpdate)
                         .putBoolean("show_watermark", showWatermark)
                         .putBoolean("show_course_border", showCourseBorder)
@@ -604,6 +606,8 @@ class MainActivity : ComponentActivity() {
                                     showWatermark = showWatermark,
                                     onShowWatermarkChange = { checked -> showWatermark = checked },
                                     onParserIdChange = { id -> parserId = id },
+                                    autoMergeAdjacent = autoMergeAdjacent,
+                                    onAutoMergeAdjacentChange = { autoMergeAdjacent = it },
                                     themeMode = themeMode,
                                     onThemeChange = { theme -> themeMode = theme },
                                     updateChannel = updateChannel,
@@ -865,6 +869,7 @@ class MainActivity : ComponentActivity() {
                                     defaultUrl = defaultBrowserUrl, desktopWidth = desktopWidth, desktopHeight = desktopHeight,
                                     autoUsername = autoUsername, autoPassword = autoPassword, autoLogin = isAutoLoginEnabled, autoNavigate = isAutoNavigateEnabled,
                                     autoCapture = isAutoCaptureEnabled,
+                                    autoMergeAdjacent = autoMergeAdjacent,
                                     defaultDesktopMode = defaultDesktopMode,
                                     onBackClick = { navController.popBackStack() },
                                     onImportCourses = { importedCourses ->
@@ -920,6 +925,7 @@ class MainActivity : ComponentActivity() {
                                         conflictColor = sharedPrefs.getLong("conflict_color", 0xFFFF0000)
                                         realTimeSlider = sharedPrefs.getBoolean("real_time_slider", false)
                                         parserId = sharedPrefs.getInt("parser_id", 1)
+                                        autoMergeAdjacent = sharedPrefs.getBoolean("auto_merge_adjacent", true)
                                         autoCheckUpdate = sharedPrefs.getBoolean("auto_check_update", true)
                                         showWatermark = sharedPrefs.getBoolean("show_watermark", true)
                                         showCourseBorder = sharedPrefs.getBoolean("show_course_border", true)
@@ -1105,7 +1111,8 @@ fun TimetableScreen(
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             result.data?.data?.let { uri ->
                 coroutineScope.launch {
-                    val importedCourses = withContext(Dispatchers.IO) { com.jiaweiya.flowcourse.parser.CqwlxyParser.parseCourseFromFile(context, uri) }
+                    val autoMerge = context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE).getBoolean("auto_merge_adjacent", true)
+                    val importedCourses = withContext(Dispatchers.IO) { com.jiaweiya.flowcourse.parser.CqwlxyParser.parseCourseFromFile(context, uri, autoMerge) }
                     if (importedCourses.isNotEmpty()) onImportCourses(importedCourses) else Toast.makeText(context, "导入失败：未能识别到课程信息", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -1568,6 +1575,7 @@ fun AutoUpdateTimetableDialog(onDismiss: () -> Unit, onSuccess: (List<Course>) -
     val defaultUrl = prefs.getString("default_url", "http://www.cqwu.edu.cn/redir/redirTmp.jsp") ?: "http://www.cqwu.edu.cn/redir/redirTmp.jsp"
     val autoUsername = prefs.getString("auto_username", "") ?: ""
     val autoPassword = prefs.getString("auto_password", "") ?: ""
+    val autoMergeAdjacent = prefs.getBoolean("auto_merge_adjacent", true)
 
     val logs = remember { mutableStateListOf<String>("初始化静默更新引擎...") }
     val coroutineScope = rememberCoroutineScope()
@@ -1633,7 +1641,7 @@ fun AutoUpdateTimetableDialog(onDismiss: () -> Unit, onSuccess: (List<Course>) -
                                     if (isHandled) return@JSBridge
                                     log("✅ [解析] 解析到课表，正在处理...")
                                     coroutineScope.launch(Dispatchers.IO) {
-                                        val courses = CqwlxyParser.parseCourseFromHtml(html)
+                                        val courses = CqwlxyParser.parseCourseFromHtml(html, autoMergeAdjacent = autoMergeAdjacent)
                                         withContext(Dispatchers.Main) {
                                             if (courses.isNotEmpty()) {
                                                 if (isHandled) return@withContext

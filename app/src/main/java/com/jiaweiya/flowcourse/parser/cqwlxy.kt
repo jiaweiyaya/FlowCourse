@@ -8,10 +8,10 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 
 object CqwlxyParser {
-    fun parseCourseFromHtml(content: String, log: ((String) -> Unit)? = null): List<Course> {
+    fun parseCourseFromHtml(content: String, log: ((String) -> Unit)? = null, autoMergeAdjacent: Boolean = true): List<Course> {
         val trimmed = content.trim()
         if (trimmed.startsWith("{") && (trimmed.contains("getMyScheduleDetail") || trimmed.contains("arrangedList"))) {
-            return parseCourseFromJson(trimmed, log)
+            return parseCourseFromJson(trimmed, log, autoMergeAdjacent)
         }
         log?.invoke("[解析] 尝试从HTML中匹配表格...")
         val courses = mutableListOf<Course>()
@@ -68,10 +68,10 @@ object CqwlxyParser {
                 }
             }
         } catch (e: Exception) { e.printStackTrace() }
-        return mergeCourses(courses)
+        return if (autoMergeAdjacent) mergeAdjacentCourses(courses) else mergeCourses(courses)
     }
 
-    fun parseCourseFromJson(jsonStr: String, log: ((String) -> Unit)? = null): List<Course> {
+    fun parseCourseFromJson(jsonStr: String, log: ((String) -> Unit)? = null, autoMergeAdjacent: Boolean = true): List<Course> {
         val courses = mutableListOf<Course>()
         try {
             log?.invoke("[JSON解析] 开始解析课程JSON结构，数据长度: " + jsonStr.length)
@@ -146,7 +146,7 @@ object CqwlxyParser {
             e.printStackTrace()
             log?.invoke("[JSON解析异常] " + e.message)
         }
-        val merged = mergeCourses(courses)
+        val merged = if (autoMergeAdjacent) mergeAdjacentCourses(courses) else mergeCourses(courses)
         log?.invoke("[JSON解析完成] 最终有效生成课程门数: " + merged.size)
         return merged
     }
@@ -240,14 +240,69 @@ object CqwlxyParser {
             .joinToString("; ")
     }
 
-    fun parseCourseFromFile(context: Context, uri: Uri): List<Course> {
+    fun parseCourseFromFile(context: Context, uri: Uri, autoMergeAdjacent: Boolean = true): List<Course> {
         return try {
             val inputStream = context.contentResolver.openInputStream(uri) ?: return emptyList()
             val reader = BufferedReader(InputStreamReader(inputStream, "UTF-8"))
             val content = reader.readText()
             reader.close()
-            parseCourseFromHtml(content)
+            parseCourseFromHtml(content, autoMergeAdjacent = autoMergeAdjacent)
         } catch (e: Exception) { e.printStackTrace(); emptyList() }
+    }
+
+    private fun mergeAdjacentCourses(courses: List<Course>): List<Course> {
+        val result = mutableListOf<Course>()
+        val groups = courses.groupBy { "${it.name}|${it.room}|${it.teacher}|${it.dayOfWeek}" }
+
+        for ((_, groupCourses) in groups) {
+            if (groupCourses.isEmpty()) continue
+            val template = groupCourses.first()
+
+            val weekIntervals = mutableMapOf<Int, MutableList<Pair<Int, Int>>>()
+            for (c in groupCourses) {
+                for (w in c.weekList) {
+                    weekIntervals.getOrPut(w) { mutableListOf() }.add(Pair(c.startNode, c.endNode))
+                }
+            }
+
+            val mergedWeekIntervals = mutableMapOf<Int, List<Pair<Int, Int>>>()
+            for ((w, intervals) in weekIntervals) {
+                val sorted = intervals.sortedBy { it.first }
+                val merged = mutableListOf<Pair<Int, Int>>()
+                for (interval in sorted) {
+                    if (merged.isEmpty()) {
+                        merged.add(interval)
+                    } else {
+                        val last = merged.last()
+                        if (interval.first <= last.second + 1) {
+                            merged[merged.lastIndex] = Pair(last.first, maxOf(last.second, interval.second))
+                        } else {
+                            merged.add(interval)
+                        }
+                    }
+                }
+                mergedWeekIntervals[w] = merged
+            }
+
+            val intervalToWeeks = mutableMapOf<Pair<Int, Int>, MutableList<Int>>()
+            for ((w, intervals) in mergedWeekIntervals) {
+                for (interval in intervals) {
+                    intervalToWeeks.getOrPut(interval) { mutableListOf() }.add(w)
+                }
+            }
+
+            for ((interval, weeks) in intervalToWeeks) {
+                result.add(
+                    template.copy(
+                        id = 0,
+                        startNode = interval.first,
+                        endNode = interval.second,
+                        weekList = weeks.distinct().sorted()
+                    )
+                )
+            }
+        }
+        return result
     }
 
     private fun mergeCourses(courses: List<Course>): List<Course> {

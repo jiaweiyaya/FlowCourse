@@ -153,6 +153,7 @@ fun ExportBackupScreen(
                     }
                     "课表解析设置" -> {
                         catMap["parser_id"] = sharedPrefs.getInt("parser_id", 1)
+                        catMap["auto_merge_adjacent"] = sharedPrefs.getBoolean("auto_merge_adjacent", true)
                     }
                     "课表呈现设置" -> {
                         catMap["show_watermark"] = sharedPrefs.getBoolean("show_watermark", true)

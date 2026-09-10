@@ -259,6 +259,8 @@ fun SettingsScreen(
     showWatermark: Boolean,
     onShowWatermarkChange: (Boolean) -> Unit,
     onParserIdChange: (Int) -> Unit,
+    autoMergeAdjacent: Boolean,
+    onAutoMergeAdjacentChange: (Boolean) -> Unit,
     themeMode: Int,
     onThemeChange: (Int) -> Unit,
     updateChannel: Int,
@@ -569,6 +571,23 @@ fun SettingsScreen(
                                 Text("课表解析脚本", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                                 Text(currentParserName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("自动识别并合并相连课程", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                                    Text("自动合并相同教室、老师且时间相连的连续节次课程", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(
+                                    checked = autoMergeAdjacent,
+                                    onCheckedChange = onAutoMergeAdjacentChange,
+                                    modifier = Modifier.scale(1.0f)
+                                )
+                            }
+
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
                         }
                     }

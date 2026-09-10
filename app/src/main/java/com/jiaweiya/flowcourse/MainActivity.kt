@@ -127,7 +127,7 @@ val nodeTimes = listOf(
     NodeTime("6", "15:25", "16:10"),
     NodeTime("7", "16:20", "17:05"),
     NodeTime("8", "17:15", "18:00"),
-    NodeTime("傍1", "18:00", "19:20", isVisible = false),
+    NodeTime("傍1", "18:25", "19:10",),
     NodeTime("9", "19:20", "20:05"),
     NodeTime("10", "20:15", "21:00"),
     NodeTime("11", "21:10", "21:55"),
@@ -357,7 +357,7 @@ class MainActivity : ComponentActivity() {
             var isAutoLoginEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_login", false)) }
             var isAutoNavigateEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_navigate", false)) }
             var isAutoCaptureEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("auto_capture_schedule", false)) }
-            var defaultDesktopMode by remember { mutableStateOf(sharedPrefs.getBoolean("default_desktop_mode", false)) }
+            var defaultDesktopMode by remember { mutableStateOf(sharedPrefs.getBoolean("default_desktop_mode", true)) }
 
             var preferredConflictIds by remember { mutableStateOf(sharedPrefs.getStringSet("preferred_conflict_ids", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()) }
 
@@ -487,10 +487,20 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf<List<TimeProfile>>(
                         try {
                             val json = sharedPrefs.getString("time_profiles_data", null)
-                            if (json != null) {
+                            val loaded = if (json != null) {
                                 val type = object : TypeToken<List<TimeProfile>>() {}.type
-                                gson.fromJson(json, type) ?: listOf(TimeProfile(1, "默认配置", nodeTimes))
+                                gson.fromJson<List<TimeProfile>>(json, type) ?: listOf(TimeProfile(1, "默认配置", nodeTimes))
                             } else listOf(TimeProfile(1, "默认配置", nodeTimes))
+
+                            loaded.map { profile ->
+                                if (profile.id == 1 && profile.name == "默认配置") {
+                                    profile.copy(nodes = profile.nodes.map { node ->
+                                        if (node.label == "傍1" && node.start == "18:00") {
+                                            node.copy(start = "18:25", end = "19:10", isVisible = true)
+                                        } else node
+                                    })
+                                } else profile
+                            }
                         } catch (e: Exception) { listOf(TimeProfile(1, "默认配置", nodeTimes)) }
                     )
                 }
@@ -935,7 +945,7 @@ class MainActivity : ComponentActivity() {
                                         isAutoLoginEnabled = sharedPrefs.getBoolean("auto_login", false)
                                         isAutoNavigateEnabled = sharedPrefs.getBoolean("auto_navigate", false)
                                         isAutoCaptureEnabled = sharedPrefs.getBoolean("auto_capture_schedule", false)
-                                        defaultDesktopMode = sharedPrefs.getBoolean("default_desktop_mode", false)
+                                        defaultDesktopMode = sharedPrefs.getBoolean("default_desktop_mode", true)
                                     },
                                     onBackClick = {
                                         pendingBackupToImport = null

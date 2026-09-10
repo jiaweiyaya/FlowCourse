@@ -1650,7 +1650,7 @@ fun WebViewSettingsScreen(
     val sysDefaultUrl = "http://www.cqwu.edu.cn/redir/redirTmp.jsp"
     val sysDefaultWidth = 1920
     val sysDefaultHeight = 1080
-    val sysDefaultDesktop = false
+    val sysDefaultDesktop = true
 
     var showModeDialog by remember { mutableStateOf(false) }
 

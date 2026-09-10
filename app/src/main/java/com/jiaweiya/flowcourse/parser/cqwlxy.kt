@@ -454,8 +454,15 @@ object CqwlxyParser {
         if (isPortalPage) {
             return """
             javascript:(function() {
-                console.log('[JS] 处于门户主页，正在尝试跳转教务服务...');
-                var targetUrl = 'https://jwfw.cqwu.edu.cn/jwapp/sys/homeapp/home/index.html?av=&contextPath=/jwapp#/';
+                console.log('[JS] 处于门户主页，正在自适应跳转新版教务服务...');
+                var targetUrl = '';
+                if (window.location.href.indexOf('myvpn.cqwu.edu.cn') > -1 || window.location.href.indexOf('/webvpn/') > -1) {
+                    var vpnOrigin = window.location.origin;
+                    targetUrl = vpnOrigin + '/webvpn/LjE1My4xNzAuMTcyLjE2My4xNjk=/LjE1NS4xNzMuMTU4LjE3MC4xMDAuMTU1LjE2NS4xNjguMTcwLjEwMi4xOTguMTQ5LjE2NS45Ni4xNTMuMTY1/jwapp/sys/homeapp/home/index.html?&av=&contextPath=/jwapp';
+                } else {
+                    targetUrl = 'https://jwfw.cqwu.edu.cn/jwapp/sys/homeapp/home/index.html?av=&contextPath=/jwapp#/';
+                }
+                console.log('[JS] 准备自适应跳转到: ' + targetUrl);
                 setTimeout(function() {
                     window.location.replace(targetUrl);
                 }, 300);
@@ -483,9 +490,18 @@ object CqwlxyParser {
         if (isPortalPage) {
             return """
             javascript:(function() {
-                console.log('[JS] [静默] 处于门户主页，开始跳转至教务服务主页...');
-                var targetUrl = 'https://jwfw.cqwu.edu.cn/jwapp/sys/homeapp/home/index.html?av=&contextPath=/jwapp#/';
-                setTimeout(function() { window.location.replace(targetUrl); }, 300);
+                console.log('[JS] [静默] 处于门户主页，正在自适应跳转新版教务服务...');
+                var targetUrl = '';
+                if (window.location.href.indexOf('myvpn.cqwu.edu.cn') > -1 || window.location.href.indexOf('/webvpn/') > -1) {
+                    var vpnOrigin = window.location.origin;
+                    targetUrl = vpnOrigin + '/webvpn/LjE1My4xNzAuMTcyLjE2My4xNjk=/LjE1NS4xNzMuMTU4LjE3MC4xMDAuMTU1LjE2NS4xNjguMTcwLjEwMi4xOTguMTQ5LjE2NS45Ni4xNTMuMTY1/jwapp/sys/homeapp/home/index.html?&av=&contextPath=/jwapp';
+                } else {
+                    targetUrl = 'https://jwfw.cqwu.edu.cn/jwapp/sys/homeapp/home/index.html?av=&contextPath=/jwapp#/';
+                }
+                console.log('[JS] [静默] 准备自适应跳转到: ' + targetUrl);
+                setTimeout(function() {
+                    window.location.replace(targetUrl);
+                }, 300);
             })();
             """.trimIndent()
         }

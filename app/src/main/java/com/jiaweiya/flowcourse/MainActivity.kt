@@ -884,7 +884,8 @@ class MainActivity : ComponentActivity() {
                                 val hideImport = backStackEntry.arguments?.getBoolean("hideImport") ?: false
                                 BrowserScreen(
                                     defaultUrl = defaultBrowserUrl, desktopWidth = desktopWidth, desktopHeight = desktopHeight,
-                                    autoUsername = autoUsername, autoPassword = autoPassword, autoLogin = isAutoLoginEnabled, autoNavigate = isAutoNavigateEnabled,
+                                    autoUsername = autoUsername, autoPassword = autoPassword, autoLogin = isAutoLoginEnabled,
+                                    autoNavigate = if (hideImport) false else isAutoNavigateEnabled,
                                     autoCapture = isAutoCaptureEnabled,
                                     autoMergeAdjacent = autoMergeAdjacent,
                                     defaultDesktopMode = defaultDesktopMode,

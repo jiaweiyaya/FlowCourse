@@ -53,6 +53,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -566,10 +568,8 @@ class MainActivity : ComponentActivity() {
                                     highlightToday = highlightToday, showTimeLine = showTimeLine,
                                     showConflictWarning = showConflictWarning,
                                     realTimeSlider = realTimeSlider,
-                                    onSetCurrentWeek = { newWeek ->
-                                        val mondayOfThisWeek = today.minusDays((today.dayOfWeek.value - 1).toLong())
-                                        val newTermStart = mondayOfThisWeek.minusWeeks((newWeek - 1).toLong())
-                                        timetables = timetables.map { if (it.id == activeTimetableId) it.copy(termStart = newTermStart.toString()) else it }
+                                    onSetCurrentWeek = { newWeek, newTermStartStr ->
+                                        timetables = timetables.map { if (it.id == activeTimetableId) it.copy(termStart = newTermStartStr) else it }
                                     },
                                     onTimetableSelect = { activeTimetableId = it },
                                     onNewTimetable = {
@@ -1077,7 +1077,7 @@ fun TimetableScreen(
     conflictColor: Long,
     highlightToday: Boolean, showTimeLine: Boolean, showConflictWarning: Boolean,
     realTimeSlider: Boolean,
-    onSetCurrentWeek: (Int) -> Unit, modifier: Modifier = Modifier,
+    onSetCurrentWeek: (Int, String) -> Unit, modifier: Modifier = Modifier,
     onTimetableSelect: (Int) -> Unit, onNewTimetable: () -> Unit, onDeleteTimetable: (Int) -> Unit, onReorderTimetables: (List<TimetableData>) -> Unit,
     onNavigateToSettings: () -> Unit, onNavigateToAddCourse: () -> Unit, onNavigateToEditCourse: (Int) -> Unit,
     onNavigateToEditTimetable: (Int) -> Unit, onNavigateToEditTimeProfile: (Int) -> Unit,
@@ -1378,9 +1378,15 @@ fun TimetableScreen(
 
     if (showSetCurrentWeekDialog) {
         SetCurrentWeekDialog(
-            currentActualWeek = currentActualWeek, totalWeeks = totalWeeks,
+            initialTermStart = activeTimetable?.termStart,
+            currentActualWeek = currentActualWeek,
+            totalWeeks = totalWeeks,
             onDismiss = { showSetCurrentWeekDialog = false },
-            onConfirm = { newWeek -> onSetCurrentWeek(newWeek); showSetCurrentWeekDialog = false; coroutineScope.launch { pagerState.animateScrollToPage(newWeek - 1) } }
+            onConfirm = { newWeek, newTermStartStr ->
+                onSetCurrentWeek(newWeek, newTermStartStr)
+                showSetCurrentWeekDialog = false
+                coroutineScope.launch { pagerState.animateScrollToPage(newWeek - 1) }
+            }
         )
     }
 
@@ -1493,35 +1499,134 @@ fun TimetableScreen(
 }
 
 @Composable
-fun SetCurrentWeekDialog(currentActualWeek: Int, totalWeeks: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
+fun SetCurrentWeekDialog(
+    initialTermStart: String? = null,
+    currentActualWeek: Int,
+    totalWeeks: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int, String) -> Unit
+) {
+    val today = remember { LocalDate.now() }
+    val thisMonday = remember { today.minusDays((today.dayOfWeek.value - 1).toLong()) }
+
+    val parsedInitialStart = remember(initialTermStart) {
+        try {
+            if (!initialTermStart.isNullOrBlank()) LocalDate.parse(initialTermStart) else null
+        } catch (_: Exception) { null }
+    } ?: thisMonday.minusWeeks((currentActualWeek - 1).toLong())
+
     var selectedWeek by remember { mutableIntStateOf(currentActualWeek) }
+    var monthStr by remember { mutableStateOf(parsedInitialStart.monthValue.toString()) }
+    var dayStr by remember { mutableStateOf(parsedInitialStart.dayOfMonth.toString()) }
+    var selectedStartDate by remember { mutableStateOf(parsedInitialStart) }
+
+    fun updateFromMonthDay(mStr: String, dStr: String) {
+        val m = mStr.toIntOrNull() ?: return
+        val d = dStr.toIntOrNull() ?: return
+        if (m !in 1..12 || d !in 1..31) return
+        try {
+            val year = parsedInitialStart.year
+            val inputDate = LocalDate.of(year, m, d)
+            val monday = inputDate.minusDays((inputDate.dayOfWeek.value - 1).toLong())
+            selectedStartDate = monday
+
+            val daysDiff = ChronoUnit.DAYS.between(monday, today)
+            val calcWeek = ((daysDiff / 7).toInt() + 1).coerceIn(1, totalWeeks)
+            selectedWeek = calcWeek
+        } catch (_: Exception) {}
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("设置当前周", fontWeight = FontWeight.Bold) },
+        title = { Text("修改开学日期", fontWeight = FontWeight.Bold) },
         text = {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(5),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(totalWeeks) { i ->
-                    val week = i + 1
-                    val isSelected = selectedWeek == week
-                    Box(
-                        modifier = Modifier
-                            .aspectRatio(1f)
-                            .clip(CircleShape)
-                            .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { selectedWeek = week },
-                        contentAlignment = Alignment.Center
+                Text("快速点选当前所处周数：", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp)) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(5),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("$week", color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        items(totalWeeks) { i ->
+                            val week = i + 1
+                            val isSelected = selectedWeek == week
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                                    .clickable {
+                                        selectedWeek = week
+                                        val newStart = thisMonday.minusWeeks((week - 1).toLong())
+                                        selectedStartDate = newStart
+                                        monthStr = newStart.monthValue.toString()
+                                        dayStr = newStart.dayOfMonth.toString()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("$week", color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
                 }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                Text("或手动输入开学月日：", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = monthStr,
+                        onValueChange = { newVal ->
+                            monthStr = newVal.filter { it.isDigit() }.take(2)
+                            updateFromMonthDay(monthStr, dayStr)
+                        },
+                        label = { Text("月份") },
+                        suffix = { Text("月") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    OutlinedTextField(
+                        value = dayStr,
+                        onValueChange = { newVal ->
+                            dayStr = newVal.filter { it.isDigit() }.take(2)
+                            updateFromMonthDay(monthStr, dayStr)
+                        },
+                        label = { Text("日期") },
+                        suffix = { Text("日") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Text(
+                    text = "第一周周一为：${selectedStartDate.year}年${selectedStartDate.monthValue}月${selectedStartDate.dayOfMonth}日 (对应当前第 ${selectedWeek} 周)",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(selectedWeek) }) { Text("确定", color = MaterialTheme.colorScheme.primary) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        confirmButton = {
+            TextButton(onClick = { onConfirm(selectedWeek, selectedStartDate.toString()) }) {
+                Text("确定", color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     )
 }
 

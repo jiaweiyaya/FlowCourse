@@ -6,7 +6,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.*
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,7 +40,9 @@ fun EditTimetableScreen(
     var name by remember { mutableStateOf(currentTimetable.name) }
     var selectedProfileId by remember { mutableStateOf(currentTimetable.timeProfileId) }
     var totalWeeksStr by remember { mutableStateOf(currentTimetable.totalWeeks.toString()) }
+    var currentTermStart by remember { mutableStateOf(currentTimetable.termStart) }
     var showProfileDropdown by remember { mutableStateOf(false) }
+    var showSetDateDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
@@ -55,7 +60,8 @@ fun EditTimetableScreen(
                         val updated = currentTimetable.copy(
                             name = name.ifBlank { "未命名课表" },
                             timeProfileId = selectedProfileId,
-                            totalWeeks = totalWeeksStr.toIntOrNull()?.coerceIn(1, 50) ?: 20
+                            totalWeeks = totalWeeksStr.toIntOrNull()?.coerceIn(1, 50) ?: 20,
+                            termStart = currentTermStart
                         )
                         onSaveTimetable(updated)
                         onBackClick()
@@ -97,12 +103,22 @@ fun EditTimetableScreen(
                 Text("开学日期 (第一周周一)", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = currentTimetable.termStart ?: "尚未设置，采用默认计算",
+                    text = currentTermStart ?: "尚未设置，采用默认计算",
                     fontSize = 16.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { showSetDateDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("修改开学日期")
+                }
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "提示：在课表主界面通过点击“修改当前周”可自动校准开学日期。",
+                    text = "提示：点击上方按钮或在课表主界面均可快速校准开学日期与当前周。",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -184,6 +200,29 @@ fun EditTimetableScreen(
                     }
                 }
             }
+        }
+
+        if (showSetDateDialog) {
+            val today = remember { LocalDate.now() }
+            val defaultTermStart = remember { today.minusDays((today.dayOfWeek.value - 1).toLong()) }
+            val parsedStart = remember(currentTermStart) {
+                try {
+                    if (!currentTermStart.isNullOrBlank()) LocalDate.parse(currentTermStart) else defaultTermStart
+                } catch (_: Exception) { defaultTermStart }
+            }
+            val daysDiff = ChronoUnit.DAYS.between(parsedStart, today)
+            val calculatedWeek = ((daysDiff / 7).toInt() + 1).coerceIn(1, totalWeeksStr.toIntOrNull() ?: 20)
+
+            SetCurrentWeekDialog(
+                initialTermStart = currentTermStart,
+                currentActualWeek = calculatedWeek,
+                totalWeeks = totalWeeksStr.toIntOrNull()?.coerceIn(1, 50) ?: 20,
+                onDismiss = { showSetDateDialog = false },
+                onConfirm = { _, newTermStartStr ->
+                    currentTermStart = newTermStartStr
+                    showSetDateDialog = false
+                }
+            )
         }
     }
 }

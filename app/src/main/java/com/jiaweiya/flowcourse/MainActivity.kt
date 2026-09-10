@@ -509,6 +509,7 @@ class MainActivity : ComponentActivity() {
                 val activeTimetable = timetables.find { it.id == activeTimetableId } ?: timetables.firstOrNull()
 
                 var pendingImportCourses by remember { mutableStateOf<List<Course>?>(null) }
+                var pendingNewTimetableCourses by remember { mutableStateOf<List<Course>?>(null) }
 
                 LaunchedEffect(Unit) {
                     updateAppWidget(context)
@@ -1040,18 +1041,37 @@ class MainActivity : ComponentActivity() {
 
                                         Button(onClick = {
                                             val maxId = timetables.flatMap { it.courses }.maxOfOrNull { it.id } ?: 0
-                                            val maxWeek = processedImportCourses.flatMap { it.weekList }.maxOrNull() ?: 20
-                                            val newCourses = pendingImportCourses!!.mapIndexed { index, c -> c.copy(id = maxId + index + 1) }
-                                            val newId = (timetables.maxOfOrNull { it.id } ?: 0) + 1
-                                            timetables = timetables + TimetableData(newId, "导入的新课表", newCourses, totalWeeks = maxWeek)
-                                            activeTimetableId = newId
+                                            val newCourses = processedImportCourses.mapIndexed { index, c -> c.copy(id = maxId + index + 1) }
+                                            pendingNewTimetableCourses = newCourses
                                             pendingImportCourses = null
-                                            Toast.makeText(context, "已新建为新课表", Toast.LENGTH_SHORT).show()
                                         }, modifier = Modifier.fillMaxWidth()) { Text("新建为新课表") }
                                     }
                                 },
                                 confirmButton = {},
                                 dismissButton = { TextButton(onClick = { pendingImportCourses = null }) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+                            )
+                        }
+
+                        if (pendingNewTimetableCourses != null) {
+                            val maxWeek = pendingNewTimetableCourses!!.flatMap { it.weekList }.maxOrNull() ?: 20
+                            SetCurrentWeekDialog(
+                                initialTermStart = null,
+                                currentActualWeek = 1,
+                                totalWeeks = maxOf(20, maxWeek),
+                                onDismiss = { pendingNewTimetableCourses = null },
+                                onConfirm = { _, newTermStartStr ->
+                                    val newId = (timetables.maxOfOrNull { it.id } ?: 0) + 1
+                                    timetables = timetables + TimetableData(
+                                        id = newId,
+                                        name = "导入的新课表",
+                                        courses = pendingNewTimetableCourses!!,
+                                        termStart = newTermStartStr,
+                                        totalWeeks = maxOf(20, maxWeek)
+                                    )
+                                    activeTimetableId = newId
+                                    pendingNewTimetableCourses = null
+                                    Toast.makeText(context, "已新建为新课表", Toast.LENGTH_SHORT).show()
+                                }
                             )
                         }
                     }

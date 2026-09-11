@@ -14,8 +14,8 @@ android {
         applicationId = "com.jiaweiya.flowcourse"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "2.4.3"
+        versionCode = 30
+        versionName = "3.0.1"
 
         ndk {
             abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))

@@ -103,11 +103,31 @@ fun BrowserScreen(
 
             log('[提取指令] 用户点击提取按钮，当前URL: ' + window.location.href);
 
-            // 1. 优先检查页面是否已经通过网络监听缓存了课表数据
-            if (window.__FC_SCHEDULE_DATA__) {
+            // 跨 frame 递归遍历辅助函数
+            function walkFrames(win, callback, depth) {
+                if (!win || depth > 5) return null;
+                try {
+                    var res = callback(win);
+                    if (res) return res;
+                } catch(e) {}
+                try {
+                    for (var i = 0; i < win.frames.length; i++) {
+                        var childRes = walkFrames(win.frames[i], callback, (depth || 0) + 1);
+                        if (childRes) return childRes;
+                    }
+                } catch(e) {}
+                return null;
+            }
+
+            // 1. 穿透检查所有 frame 是否已经缓存了课表数据
+            var cachedSchedule = walkFrames(window, function(w) {
+                return w.__FC_SCHEDULE_DATA__ || null;
+            }, 0);
+
+            if (cachedSchedule) {
                 log('[提取] 发现页面已监听缓存的课表数据，直接回传');
                 if (window.AndroidBridge) {
-                    window.AndroidBridge.onTimetableExtracted(window.__FC_SCHEDULE_DATA__);
+                    window.AndroidBridge.onTimetableExtracted(cachedSchedule);
                 }
                 return 'CACHED';
             }
@@ -116,49 +136,109 @@ fun BrowserScreen(
             if (window.location.href.indexOf('jwapp') > -1 || window.location.href.indexOf('kbapp') > -1) {
                 var basePath = window.location.href.split('/jwapp/')[0] + '/jwapp';
                 var targetUrl = basePath + '/sys/kbapp/api/wdkbcx/getMyScheduleDetail.do';
+                var defaultTermUrl = basePath + '/sys/jwpubapp/modules/gg/cxmrxnxq.do';
 
                 // 多策略嗅探当前学年学期参数
                 var xnxqdm = '';
                 try {
-                    xnxqdm = sessionStorage.getItem('XNXQDM') || '';
+                    // 策略A：跨 frame 查找 sessionStorage
+                    xnxqdm = walkFrames(window, function(w) {
+                        return (w.sessionStorage && w.sessionStorage.getItem('XNXQDM')) ? w.sessionStorage.getItem('XNXQDM') : null;
+                    }, 0) || '';
+
+                    // 策略B：跨 frame 查找指定属性的 input
                     if (!xnxqdm) {
-                        var selectorInput = document.querySelector('[data-name="XNXQDM"]') || document.querySelector('input[name="XNXQDM"]');
-                        if (selectorInput && selectorInput.value) xnxqdm = selectorInput.value;
+                        xnxqdm = walkFrames(window, function(w) {
+                            var el = w.document.querySelector('[data-name="XNXQDM"]') || w.document.querySelector('input[name="XNXQDM"]');
+                            return (el && el.value) ? el.value : null;
+                        }, 0) || '';
                     }
+
+                    // 策略C：跨 frame 查找学期文本显示元素（包括 .kbappTimeXQText 和正文中的中文学期格式）
                     if (!xnxqdm) {
-                        var termMatch = document.body.innerText.match(/\d{4}-\d{4}-[123]/);
-                        if (termMatch) xnxqdm = termMatch[0];
+                        xnxqdm = walkFrames(window, function(w) {
+                            var termElem = w.document.querySelector('.kbappTimeXQText');
+                            var textToScan = termElem ? termElem.innerText : (w.document.body ? w.document.body.innerText : '');
+                            
+                            // 匹配类似 "2026-2027学年 第一学期"
+                            var cnMatch = textToScan.match(/(\d{4}-\d{4})\s*学年\s*第([一二三123])学期/);
+                            if (cnMatch) {
+                                var xqNum = (cnMatch[2] === '一' || cnMatch[2] === '1') ? '1' : ((cnMatch[2] === '二' || cnMatch[2] === '2') ? '2' : '3');
+                                return cnMatch[1] + '-' + xqNum;
+                            }
+
+                            // 匹配标准代号 "2026-2027-1"
+                            var termMatch = textToScan.match(/\d{4}-\d{4}-[123]/);
+                            if (termMatch) return termMatch[0];
+
+                            return null;
+                        }, 0) || '';
                     }
                 } catch(err) {
                     log('[学期探测警告] ' + err);
                 }
 
-                var postPayload = 'XNXQDM=' + encodeURIComponent(xnxqdm) + '&XQDM=';
-                log('[网络请求] 发起POST请求: ' + targetUrl);
-                log('[网络负载] ' + postPayload);
+                // 执行最终课表请求
+                function executeScheduleFetch(finalTerm) {
+                    var postPayload = 'XNXQDM=' + encodeURIComponent(finalTerm) + '&XQDM=';
+                    log('[网络请求] 发起POST请求: ' + targetUrl);
+                    log('[网络负载] ' + postPayload);
 
-                fetch(targetUrl, {
+                    fetch(targetUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: postPayload
+                    })
+                    .then(function(res) {
+                        log('[收到响应] HTTP状态: ' + res.status);
+                        return res.text();
+                    })
+                    .then(function(text) {
+                        log('[响应长度] 收到内容长度: ' + text.length + ' 字符');
+                        log('[响应预览] ' + text.substring(0, Math.min(text.length, 260)));
+                        if (window.AndroidBridge) {
+                            window.AndroidBridge.onTimetableExtracted(text);
+                        }
+                    })
+                    .catch(function(e) {
+                        log('[请求异常] fetch失败: ' + e);
+                    });
+                }
+
+                // 如果已经找到了学期代码，直接请求课表
+                if (xnxqdm) {
+                    log('[学期探测] 探测到学年学期: ' + xnxqdm);
+                    executeScheduleFetch(xnxqdm);
+                    return 'FETCHING';
+                }
+
+                // 策略D：如果页面中未能嗅探到学期，调用系统默认学年学期接口兜底
+                log('[学期探测] 本地未嗅探到有效学期，正在请求默认学期接口: ' + defaultTermUrl);
+                fetch(defaultTermUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                         'X-Requested-With': 'XMLHttpRequest'
                     },
-                    body: postPayload
+                    body: 'CSDM=SYS&ZCSDM=DQXNXQDM&SFSY=1'
                 })
-                .then(function(res) {
-                    log('[收到响应] HTTP状态: ' + res.status);
-                    return res.text();
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    var termFromApi = '';
+                    try {
+                        termFromApi = data.datas.cxmrxnxq.rows[0].XNXQDM;
+                    } catch(e) {}
+                    log('[学期探测] 接口获取到默认学期: ' + termFromApi);
+                    executeScheduleFetch(termFromApi || '');
                 })
-                .then(function(text) {
-                    log('[响应长度] 收到内容长度: ' + text.length + ' 字符');
-                    log('[响应预览] ' + text.substring(0, Math.min(text.length, 260)));
-                    if (window.AndroidBridge) {
-                        window.AndroidBridge.onTimetableExtracted(text);
-                    }
-                })
-                .catch(function(e) {
-                    log('[请求异常] fetch失败: ' + e);
+                .catch(function(err) {
+                    log('[学期探测] 默认学期请求失败: ' + err + '，尝试使用空参数请求');
+                    executeScheduleFetch('');
                 });
+
                 return 'FETCHING';
             }
 
@@ -176,21 +256,10 @@ fun BrowserScreen(
                 }
                 return null;
             }
-            function walk(win, depth) {
-                if(depth > 5) return null;
-                try {
-                    var r = findTable(win.document);
-                    if(r) return r;
-                } catch(e){}
-                try {
-                    for(var i=0; i<win.frames.length; i++){
-                        var fr = walk(win.frames[i], depth+1);
-                        if(fr) return fr;
-                    }
-                } catch(e){}
-                return null;
-            }
-            var resultTable = walk(window, 0) || '';
+            var resultTable = walkFrames(window, function(w) {
+                return findTable(w.document);
+            }, 0) || '';
+
             log('[表格查找结果] 长度: ' + resultTable.length);
             if (resultTable && window.AndroidBridge) {
                 window.AndroidBridge.onTimetableExtracted(resultTable);
@@ -494,60 +563,86 @@ private fun setupClients(
             // 注入网络监听钩子，页面自主发起课表请求时会被立即捕获
             val interceptScript = """
                 javascript:(function() {
-                    if (window.__fc_injected) return;
-                    window.__fc_injected = true;
-                    var origOpen = XMLHttpRequest.prototype.open;
-                    var origSend = XMLHttpRequest.prototype.send;
-                    XMLHttpRequest.prototype.open = function(method, u) {
-                        this._fc_url = u;
-                        return origOpen.apply(this, arguments);
-                    };
-                    XMLHttpRequest.prototype.send = function(body) {
-                        var self = this;
-                        if (self._fc_url && self._fc_url.indexOf('getMyScheduleDetail') > -1) {
-                            if (window.AndroidBridge && window.AndroidBridge.log) {
-                                window.AndroidBridge.log('[自动监听] 页面发起课表请求: ' + self._fc_url + ', 负载: ' + body);
-                            }
-                            self.addEventListener('load', function() {
-                                if (window.AndroidBridge && window.AndroidBridge.log) {
-                                    window.AndroidBridge.log('[自动监听] 捕获到课表响应: HTTP ' + self.status + ', 长度: ' + (self.responseText ? self.responseText.length : 0));
-                                }
-                                var responseData = self.responseText || '';
-                                if (!responseData && self.response && typeof self.response === 'string') {
-                                    responseData = self.response;
-                                }
-                                if (responseData && responseData.indexOf('arrangedList') > -1) {
-                                    window.__FC_SCHEDULE_DATA__ = responseData;
-
-                                    var isAutoEnabled = false;
-                                    try {
-                                        if (window.AndroidBridge && window.AndroidBridge.isAutoCapture) {
-                                            isAutoEnabled = window.AndroidBridge.isAutoCapture();
-                                        } else {
-                                            isAutoEnabled = ${'$'}autoCapture;
-                                        }
-                                    } catch(e) {
-                                        isAutoEnabled = ${'$'}autoCapture;
+                    function hookContext(targetWin) {
+                        try {
+                            if (!targetWin || targetWin.__fc_injected) return;
+                            targetWin.__fc_injected = true;
+                            var origOpen = targetWin.XMLHttpRequest.prototype.open;
+                            var origSend = targetWin.XMLHttpRequest.prototype.send;
+                            targetWin.XMLHttpRequest.prototype.open = function(method, u) {
+                                this._fc_url = u;
+                                return origOpen.apply(this, arguments);
+                            };
+                            targetWin.XMLHttpRequest.prototype.send = function(body) {
+                                var self = this;
+                                if (self._fc_url && self._fc_url.indexOf('getMyScheduleDetail') > -1) {
+                                    if (window.AndroidBridge && window.AndroidBridge.log) {
+                                        window.AndroidBridge.log('[自动监听] 页面发起课表请求: ' + self._fc_url + ', 负载: ' + body);
                                     }
+                                    self.addEventListener('load', function() {
+                                        if (window.AndroidBridge && window.AndroidBridge.log) {
+                                            window.AndroidBridge.log('[自动监听] 捕获到课表响应: HTTP ' + self.status + ', 长度: ' + (self.responseText ? self.responseText.length : 0));
+                                        }
+                                        var responseData = self.responseText || '';
+                                        if (!responseData && self.response && typeof self.response === 'string') {
+                                            responseData = self.response;
+                                        }
+                                        if (responseData && responseData.indexOf('arrangedList') > -1) {
+                                            targetWin.__FC_SCHEDULE_DATA__ = responseData;
+                                            window.__FC_SCHEDULE_DATA__ = responseData;
 
-                                    if (isAutoEnabled && !window.__FC_AUTO_CAPTURED__) {
-                                        window.__FC_AUTO_CAPTURED__ = true;
-                                        if (window.AndroidBridge && window.AndroidBridge.log) {
-                                            window.AndroidBridge.log('[自动监听] 自动捕获已开启，正立即触发自动解析与导入...');
+                                            var isAutoEnabled = false;
+                                            try {
+                                                if (window.AndroidBridge && window.AndroidBridge.isAutoCapture) {
+                                                    isAutoEnabled = window.AndroidBridge.isAutoCapture();
+                                                } else {
+                                                    isAutoEnabled = ${'$'}autoCapture;
+                                                }
+                                            } catch(e) {
+                                                isAutoEnabled = ${'$'}autoCapture;
+                                            }
+
+                                            if (isAutoEnabled && !window.__FC_AUTO_CAPTURED__) {
+                                                window.__FC_AUTO_CAPTURED__ = true;
+                                                if (window.AndroidBridge && window.AndroidBridge.log) {
+                                                    window.AndroidBridge.log('[自动监听] 自动捕获已开启，正立即触发自动解析与导入...');
+                                                }
+                                                if (window.AndroidBridge && window.AndroidBridge.onAutoCaptured) {
+                                                    window.AndroidBridge.onAutoCaptured(responseData);
+                                                }
+                                            } else {
+                                                if (window.AndroidBridge && window.AndroidBridge.log) {
+                                                    window.AndroidBridge.log('[自动监听] 成功缓存课表数据，可随时点击右下角按钮提取');
+                                                }
+                                            }
                                         }
-                                        if (window.AndroidBridge && window.AndroidBridge.onAutoCaptured) {
-                                            window.AndroidBridge.onAutoCaptured(responseData);
-                                        }
-                                    } else {
-                                        if (window.AndroidBridge && window.AndroidBridge.log) {
-                                            window.AndroidBridge.log('[自动监听] 成功缓存课表数据，可随时点击右下角按钮提取');
-                                        }
-                                    }
+                                    });
                                 }
-                            });
+                                return origSend.apply(this, arguments);
+                            };
+                        } catch(e) {}
+                    }
+
+                    // 拦截当前顶层窗口
+                    hookContext(window);
+
+                    // 循环遍历并渗透拦截所有子 frame
+                    try {
+                        for (var i = 0; i < window.frames.length; i++) {
+                            hookContext(window.frames[i]);
                         }
-                        return origSend.apply(this, arguments);
-                    };
+                    } catch(e) {}
+
+                    // 持续轮询检测新创建的 iframe
+                    if (!window.__fc_iframe_watcher) {
+                        window.__fc_iframe_watcher = setInterval(function() {
+                            try {
+                                for (var j = 0; j < window.frames.length; j++) {
+                                    hookContext(window.frames[j]);
+                                }
+                            } catch(e) {}
+                        }, 800);
+                    }
                 })();
             """.trimIndent()
             view?.evaluateJavascript(interceptScript, null)

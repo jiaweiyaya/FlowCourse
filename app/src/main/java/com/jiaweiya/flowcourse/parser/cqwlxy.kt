@@ -547,36 +547,73 @@ object CqwlxyParser {
                             if (el && el.value) xnxqdm = el.value;
                         }
                         if (!xnxqdm) {
-                            var match = document.body.innerText.match(/\d{4}-\d{4}-[123]/);
-                            if (match) xnxqdm = match[0];
+                            var termElem = document.querySelector('.kbappTimeXQText');
+                            var textToScan = termElem ? termElem.innerText : (document.body ? document.body.innerText : '');
+                            var cnMatch = textToScan.match(/(\d{4}-\d{4})\s*学年\s*第([一二三123])学期/);
+                            if (cnMatch) {
+                                var xqNum = (cnMatch[2] === '一' || cnMatch[2] === '1') ? '1' : ((cnMatch[2] === '二' || cnMatch[2] === '2') ? '2' : '3');
+                                xnxqdm = cnMatch[1] + '-' + xqNum;
+                            } else {
+                                var match = textToScan.match(/\d{4}-\d{4}-[123]/);
+                                if (match) xnxqdm = match[0];
+                            }
                         }
                     } catch(e) {}
 
                     // 如果找到了学期或者重试达到3秒(6次)，发起带有学期参数的主动请求
                     if (xnxqdm || retryCount >= 6) {
                         clearInterval(timer);
-                        console.log('[JS] [静默] 正在主动拉取课表数据，学期代码: ' + xnxqdm);
-                        var basePath = window.location.href.split('/jwapp/')[0] + '/jwapp';
-                        var targetUrl = basePath + '/sys/kbapp/api/wdkbcx/getMyScheduleDetail.do';
 
-                        fetch(targetUrl, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                                'X-Requested-With': 'XMLHttpRequest'
-                            },
-                            body: 'XNXQDM=' + encodeURIComponent(xnxqdm) + '&XQDM='
-                        })
-                        .then(function(res) { return res.text(); })
-                        .then(function(text) {
-                            console.log('[JS] [静默] 接口返回数据，正在回传...');
-                            if (window.AndroidBridge) {
-                                window.AndroidBridge.onTimetableExtracted(text);
-                            }
-                        })
-                        .catch(function(err) {
-                            console.log('[JS] [静默] 提取课表接口异常: ' + err);
-                        });
+                        function fetchSchedule(finalTerm) {
+                            console.log('[JS] [静默] 正在主动拉取课表数据，学期代码: ' + finalTerm);
+                            var basePath = window.location.href.split('/jwapp/')[0] + '/jwapp';
+                            var targetUrl = basePath + '/sys/kbapp/api/wdkbcx/getMyScheduleDetail.do';
+
+                            fetch(targetUrl, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                                    'X-Requested-With': 'XMLHttpRequest'
+                                },
+                                body: 'XNXQDM=' + encodeURIComponent(finalTerm) + '&XQDM='
+                            })
+                            .then(function(res) { return res.text(); })
+                            .then(function(text) {
+                                console.log('[JS] [静默] 接口返回数据，正在回传...');
+                                if (window.AndroidBridge) {
+                                    window.AndroidBridge.onTimetableExtracted(text);
+                                }
+                            })
+                            .catch(function(err) {
+                                console.log('[JS] [静默] 提取课表接口异常: ' + err);
+                            });
+                        }
+
+                        if (xnxqdm) {
+                            fetchSchedule(xnxqdm);
+                        } else {
+                            var basePath = window.location.href.split('/jwapp/')[0] + '/jwapp';
+                            var defaultTermUrl = basePath + '/sys/jwpubapp/modules/gg/cxmrxnxq.do';
+                            fetch(defaultTermUrl, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                                    'X-Requested-With': 'XMLHttpRequest'
+                                },
+                                body: 'CSDM=SYS&ZCSDM=DQXNXQDM&SFSY=1'
+                            })
+                            .then(function(res) { return res.json(); })
+                            .then(function(data) {
+                                var termFromApi = '';
+                                try {
+                                    termFromApi = data.datas.cxmrxnxq.rows[0].XNXQDM;
+                                } catch(e) {}
+                                fetchSchedule(termFromApi || '');
+                            })
+                            .catch(function() {
+                                fetchSchedule('');
+                            });
+                        }
                     }
                 }, 500);
             })();

@@ -600,7 +600,9 @@ class MainActivity : ComponentActivity() {
                                     onImportCourses = { courses -> pendingImportCourses = courses },
                                     showCourseBorder = showCourseBorder,
                                     courseBorderColor = courseBorderColor,
-                                    timeLineColor = resolvedTimeLineColor
+                                    timeLineColor = resolvedTimeLineColor,
+                                    defaultDesktopMode = defaultDesktopMode,
+                                    onDefaultDesktopModeChange = { defaultDesktopMode = it }
                                 )
                             }
 
@@ -1113,7 +1115,9 @@ fun TimetableScreen(
     onNavigateToSettings: () -> Unit, onNavigateToAddCourse: () -> Unit, onNavigateToEditCourse: (Int) -> Unit,
     onNavigateToEditTimetable: (Int) -> Unit, onNavigateToEditTimeProfile: (Int) -> Unit,
     onNavigateToCourseList: (Int) -> Unit, onNavigateToBrowser: () -> Unit, onNavigateToBrowserQuick: () -> Unit, onNavigateToAbout: () -> Unit,
-    onImportCourses: (List<Course>) -> Unit
+    onImportCourses: (List<Course>) -> Unit,
+    defaultDesktopMode: Boolean,
+    onDefaultDesktopModeChange: (Boolean) -> Unit
 ) {
     val activeTimetable = timetables.find { it.id == activeTimetableId } ?: timetables.firstOrNull()
     val courses = activeTimetable?.courses ?: emptyList()
@@ -1181,6 +1185,22 @@ fun TimetableScreen(
     var showImportMenuDialog by remember { mutableStateOf(false) }
 
     var showAutoUpdateDialog by remember { mutableStateOf(false) }
+    var showDesktopWarningDialog by remember { mutableStateOf(false) }
+    var pendingActionAfterWarning by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var dontRemindDesktopWarning by remember { mutableStateOf(false) }
+
+    val proceedWithDesktopCheck: (() -> Unit) -> Unit = { action ->
+        val isIgnored = context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
+            .getBoolean("ignore_desktop_warning", false)
+        if (!defaultDesktopMode && !isIgnored) {
+            pendingActionAfterWarning = action
+            dontRemindDesktopWarning = false
+            showDesktopWarningDialog = true
+        } else {
+            action()
+        }
+    }
+
     val hasCredentials = !context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE).getString("auto_username", "").isNullOrEmpty() && !context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE).getString("auto_password", "").isNullOrEmpty()
 
     ModalNavigationDrawer(
@@ -1196,7 +1216,7 @@ fun TimetableScreen(
                 timetables = timetables,
                 onCloseDrawer = { coroutineScope.launch { drawerState.close() } },
                 hasCredentials = hasCredentials,
-                onShowAutoUpdateDialog = { showAutoUpdateDialog = true },
+                onShowAutoUpdateDialog = { proceedWithDesktopCheck { showAutoUpdateDialog = true } },
                 onNavigateToAbout = onNavigateToAbout,
                 onNavigateToSettings = onNavigateToSettings,
                 onNavigateToEditTimeProfile = onNavigateToEditTimeProfile,
@@ -1464,7 +1484,10 @@ fun TimetableScreen(
             title = { Text("导入课表", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(onClick = { showImportMenuDialog = false; onNavigateToBrowser() }, modifier = Modifier.fillMaxWidth()) { Text("从教务系统导入") }
+                    Button(onClick = {
+                        showImportMenuDialog = false
+                        proceedWithDesktopCheck { onNavigateToBrowser() }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("从教务系统导入") }
                     Button(onClick = {
                         val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         val clipText = clipboardManager.primaryClip?.getItemAt(0)?.text?.toString()
@@ -1502,6 +1525,68 @@ fun TimetableScreen(
             },
             dismissButton = {
                 TextButton(onClick = { localUpdateInfo = null }) { Text("暂不更新", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        )
+    }
+
+    if (showDesktopWarningDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (dontRemindDesktopWarning) {
+                    context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
+                        .edit().putBoolean("ignore_desktop_warning", true).apply()
+                }
+                showDesktopWarningDialog = false
+                pendingActionAfterWarning?.invoke()
+                pendingActionAfterWarning = null
+            },
+            title = { Text("模式切换建议", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("当前未选用电脑版WebView。手机版模式下教务系统可能无法正常排版或无法提取课表，建议切换为电脑版。\n\n是否立即切换为电脑版？")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { dontRemindDesktopWarning = !dontRemindDesktopWarning }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Checkbox(
+                            checked = dontRemindDesktopWarning,
+                            onCheckedChange = { dontRemindDesktopWarning = it }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("不再提示", fontSize = 14.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (dontRemindDesktopWarning) {
+                        context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
+                            .edit().putBoolean("ignore_desktop_warning", true).apply()
+                    }
+                    onDefaultDesktopModeChange(true)
+                    showDesktopWarningDialog = false
+                    pendingActionAfterWarning?.invoke()
+                    pendingActionAfterWarning = null
+                }) {
+                    Text("改为电脑版并打开", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    if (dontRemindDesktopWarning) {
+                        context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
+                            .edit().putBoolean("ignore_desktop_warning", true).apply()
+                    }
+                    showDesktopWarningDialog = false
+                    pendingActionAfterWarning?.invoke()
+                    pendingActionAfterWarning = null
+                }) {
+                    Text("直接打开", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         )
     }

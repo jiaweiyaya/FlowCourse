@@ -180,8 +180,7 @@ fun decodeShareData(data: String): List<Course>? {
         val bytes = Base64.decode(payload, Base64.NO_WRAP)
         val bis = ByteArrayInputStream(bytes)
         val json = GZIPInputStream(bis).bufferedReader(Charsets.UTF_8).use { it.readText() }
-        val type = object : TypeToken<List<Course>>() {}.type
-        Gson().fromJson(json, type)
+        Gson().fromJson(json, Array<Course>::class.java)?.toList()
     } catch (e: Exception) {
         e.printStackTrace()
         null
@@ -478,10 +477,12 @@ class MainActivity : ComponentActivity() {
                         try {
                             val json = sharedPrefs.getString("timetables_data", null)
                             if (json != null) {
-                                val type = object : TypeToken<List<TimetableData>>() {}.type
-                                gson.fromJson(json, type) ?: listOf(TimetableData(1, "默认课表", mockCourses))
+                                gson.fromJson(json, Array<TimetableData>::class.java)?.toList() ?: listOf(TimetableData(1, "默认课表", mockCourses))
                             } else listOf(TimetableData(1, "默认课表", mockCourses))
-                        } catch (e: Exception) { listOf(TimetableData(1, "默认课表", mockCourses)) }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            listOf(TimetableData(1, "默认课表", mockCourses))
+                        }
                     )
                 }
                 var activeTimetableId by remember { mutableIntStateOf(sharedPrefs.getInt("active_id", 1)) }
@@ -490,8 +491,7 @@ class MainActivity : ComponentActivity() {
                         try {
                             val json = sharedPrefs.getString("time_profiles_data", null)
                             val loaded = if (json != null) {
-                                val type = object : TypeToken<List<TimeProfile>>() {}.type
-                                gson.fromJson<List<TimeProfile>>(json, type) ?: listOf(TimeProfile(1, "默认配置", nodeTimes))
+                                gson.fromJson(json, Array<TimeProfile>::class.java)?.toList() ?: listOf(TimeProfile(1, "默认配置", nodeTimes))
                             } else listOf(TimeProfile(1, "默认配置", nodeTimes))
 
                             loaded.map { profile ->
@@ -503,7 +503,10 @@ class MainActivity : ComponentActivity() {
                                     })
                                 } else profile
                             }
-                        } catch (e: Exception) { listOf(TimeProfile(1, "默认配置", nodeTimes)) }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            listOf(TimeProfile(1, "默认配置", nodeTimes))
+                        }
                     )
                 }
                 val activeTimetable = timetables.find { it.id == activeTimetableId } ?: timetables.firstOrNull()

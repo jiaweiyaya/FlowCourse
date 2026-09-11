@@ -298,8 +298,7 @@ class TimetableWidget : GlanceAppWidget() {
         val activeId = sharedPrefs.getInt("active_id", 1)
         var profileId = 1
         try {
-            val type = object : TypeToken<List<TimetableData>>() {}.type
-            val timetables = gson.fromJson<List<TimetableData>>(timetablesJson, type) ?: emptyList()
+            val timetables = gson.fromJson(timetablesJson, Array<TimetableData>::class.java)?.toList() ?: emptyList()
             profileId = timetables.find { it.id == activeId }?.timeProfileId ?: 1
         } catch (e: Exception) {
         }
@@ -308,8 +307,7 @@ class TimetableWidget : GlanceAppWidget() {
         val defaultNodes = nodeTimes
         if (profilesJson == null) return defaultNodes
         return try {
-            val type = object : TypeToken<List<TimeProfile>>() {}.type
-            val profiles = gson.fromJson<List<TimeProfile>>(profilesJson, type) ?: emptyList()
+            val profiles = gson.fromJson(profilesJson, Array<TimeProfile>::class.java)?.toList() ?: emptyList()
             profiles.find { it.id == profileId }?.nodes ?: defaultNodes
         } catch (e: Exception) {
             defaultNodes
@@ -323,8 +321,7 @@ class TimetableWidget : GlanceAppWidget() {
         val activeId = sharedPrefs.getInt("active_id", 1)
 
         val timetables = try {
-            val type = object : TypeToken<List<TimetableData>>() {}.type
-            gson.fromJson<List<TimetableData>>(timetablesJson, type) ?: emptyList()
+            gson.fromJson(timetablesJson, Array<TimetableData>::class.java)?.toList() ?: emptyList()
         } catch (e: Exception) {
             emptyList()
         }
@@ -355,8 +352,7 @@ class TimetableWidget : GlanceAppWidget() {
         val activeId = sharedPrefs.getInt("active_id", 1)
 
         val timetables = try {
-            val type = object : TypeToken<List<TimetableData>>() {}.type
-            gson.fromJson<List<TimetableData>>(timetablesJson, type) ?: emptyList()
+            gson.fromJson(timetablesJson, Array<TimetableData>::class.java)?.toList() ?: emptyList()
         } catch (e: Exception) {
             return emptyList()
         }

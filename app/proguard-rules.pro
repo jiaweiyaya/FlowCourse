@@ -25,9 +25,19 @@
 
 # 1. Gson 与数据实体类保护（防止备份文件与课表数据解析失败）
 -keepattributes Signature
+-keepattributes InnerClasses
+-keepattributes EnclosingMethod
 -keepattributes *Annotation*
 -dontwarn sun.misc.**
 -keep class com.google.gson.** { *; }
+-keep class * extends com.google.gson.reflect.TypeToken { *; }
+-keepclassmembers class * extends com.google.gson.reflect.TypeToken {
+    protected <init>();
+}
+-keepclassmembers class com.jiaweiya.flowcourse.** {
+    <fields>;
+    <methods>;
+}
 -keep class com.jiaweiya.flowcourse.Course { *; }
 -keep class com.jiaweiya.flowcourse.TimetableData { *; }
 -keep class com.jiaweiya.flowcourse.TimeProfile { *; }

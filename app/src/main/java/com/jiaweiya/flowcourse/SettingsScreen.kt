@@ -96,7 +96,7 @@ val appIconsList = listOf(
     AppIconData(1, "com.jiaweiya.flowcourse.Alias1", R.drawable.app_icon, "默认图标"),
     AppIconData(2, "com.jiaweiya.flowcourse.Alias2", R.drawable.app_icon2, "Jiaweiya"),
     AppIconData(3, "com.jiaweiya.flowcourse.Alias3", R.drawable.app_icon3, "JM地狱！"),
-    AppIconData(4, "com.jiaweiya.flowcourse.Alias4", R.drawable.app_icon4, "待定"),
+    AppIconData(4, "com.jiaweiya.flowcourse.Alias4", R.drawable.app_icon4, "赞助图标"),
     AppIconData(5, "com.jiaweiya.flowcourse.Alias5", R.drawable.app_icon5, "待定"),
     AppIconData(6, "com.jiaweiya.flowcourse.Alias6", R.drawable.app_icon6, "待定")
 )

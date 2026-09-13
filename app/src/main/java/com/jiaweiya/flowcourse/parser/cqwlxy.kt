@@ -111,36 +111,87 @@ object CqwlxyParser {
                 val endSection = if (item.has("endSection") && !item.isNull("endSection")) item.optInt("endSection") else null
 
                 val (startNode, endNode) = mapTimeToNodes(beginTime, endTime, beginSection, endSection)
-
-                val weekMask = item.optString("week")
-                val weeksAndTeachers = item.optString("weeksAndTeachers")
-                var weekList = parseWeeksFromMask(weekMask)
-                if (weekList.isEmpty() && weeksAndTeachers.isNotEmpty()) {
-                    weekList = parseWeeks(weeksAndTeachers)
-                }
-                if (weekList.isEmpty()) continue
-
-                val teacher = parseTeacher(weeksAndTeachers)
-                val room = parseRoom(item.optString("placeName"))
                 val credit = item.optString("credit", "")
-
                 val color = courseColors.getOrPut(courseName) { colors.random() }
 
-                courses.add(
-                    Course(
-                        id = 0,
-                        name = courseName,
-                        room = room,
-                        teacher = teacher,
-                        dayOfWeek = dayOfWeek,
-                        startNode = startNode,
-                        endNode = endNode,
-                        weekList = weekList,
-                        bgColor = color,
-                        textColor = 0xFF000000,
-                        credits = credit
-                    )
-                )
+                val rawWeeksAndTeachers = item.optString("weeksAndTeachers").trim()
+                val rawPlaceName = item.optString("placeName").trim()
+                val fallbackTeacher = extractTeacherFromHtml(item)
+
+                // 拆分以分号连接的多个排课安排（例如不同的教室与对应周次）
+                val wtParts = if (rawWeeksAndTeachers.contains(";")) {
+                    rawWeeksAndTeachers.split(";").map { it.trim() }.filter { it.isNotEmpty() }
+                } else if (rawWeeksAndTeachers.isNotEmpty()) {
+                    listOf(rawWeeksAndTeachers)
+                } else emptyList()
+
+                val placeParts = if (rawPlaceName.contains(";")) {
+                    rawPlaceName.split(";").map { it.trim() }.filter { it.isNotEmpty() }
+                } else if (rawPlaceName.isNotEmpty()) {
+                    listOf(rawPlaceName)
+                } else emptyList()
+
+                val subCount = maxOf(wtParts.size, placeParts.size)
+
+                if (subCount > 1) {
+                    for (k in 0 until subCount) {
+                        val subWt = wtParts.getOrNull(k) ?: wtParts.firstOrNull() ?: ""
+                        val subPlace = placeParts.getOrNull(k) ?: placeParts.firstOrNull() ?: ""
+                        val subTeacher = parseTeacher(subWt).ifEmpty { fallbackTeacher }
+
+                        val subWeeks = parseWeeks(subWt)
+                        if (subWeeks.isEmpty()) continue
+
+                        // 将不连续的周次切分为多个连续段，且严格绑定当前子教室
+                        val continuousSegments = splitContinuousWeeks(subWeeks)
+                        for (segWeeks in continuousSegments) {
+                            courses.add(
+                                Course(
+                                    id = 0,
+                                    name = courseName,
+                                    room = subPlace,
+                                    teacher = subTeacher,
+                                    dayOfWeek = dayOfWeek,
+                                    startNode = startNode,
+                                    endNode = endNode,
+                                    weekList = segWeeks,
+                                    bgColor = color,
+                                    textColor = 0xFF000000,
+                                    credits = credit
+                                )
+                            )
+                        }
+                    }
+                } else {
+                    val teacher = parseTeacher(rawWeeksAndTeachers).ifEmpty { fallbackTeacher }
+                    val room = parseRoom(rawPlaceName)
+
+                    var weekList = if (rawWeeksAndTeachers.isNotEmpty()) parseWeeks(rawWeeksAndTeachers) else emptyList()
+                    if (weekList.isEmpty()) {
+                        weekList = parseWeeksFromMask(item.optString("week"))
+                    }
+                    if (weekList.isEmpty()) continue
+
+                    // 将不连续周次拆分为连续段
+                    val continuousSegments = splitContinuousWeeks(weekList)
+                    for (segWeeks in continuousSegments) {
+                        courses.add(
+                            Course(
+                                id = 0,
+                                name = courseName,
+                                room = room,
+                                teacher = teacher,
+                                dayOfWeek = dayOfWeek,
+                                startNode = startNode,
+                                endNode = endNode,
+                                weekList = segWeeks,
+                                bgColor = color,
+                                textColor = 0xFF000000,
+                                credits = credit
+                            )
+                        )
+                    }
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -219,6 +270,49 @@ object CqwlxyParser {
         return list
     }
 
+    // 将不连续的周次列表切分为若干段连续的周次列表，例如 [1,2,3,4,6,7] 切分为 [[1,2,3,4], [6,7]]
+    private fun splitContinuousWeeks(weeks: List<Int>): List<List<Int>> {
+        if (weeks.isEmpty()) return emptyList()
+        val sorted = weeks.distinct().sorted()
+        val result = mutableListOf<MutableList<Int>>()
+        var current = mutableListOf<Int>()
+        for (w in sorted) {
+            if (current.isEmpty() || w == current.last() + 1) {
+                current.add(w)
+            } else {
+                result.add(current)
+                current = mutableListOf(w)
+            }
+        }
+        if (current.isNotEmpty()) {
+            result.add(current)
+        }
+        return result
+    }
+
+    // 从 cellDetail 或 titleDetail 等 HTML 中兜底提取教师姓名 (data-kblx="02" 为教师)
+    private fun extractTeacherFromHtml(item: JSONObject): String {
+        val candidates = mutableListOf<String>()
+        fun scanArray(arrayName: String) {
+            val arr = item.optJSONArray(arrayName) ?: return
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i)
+                val text = obj?.optString("text") ?: arr.optString(i, "")
+                if (text.isNotEmpty()) {
+                    val teacherRegex = Regex("""data-kblx=["']02["'][^>]*>([^<]+)</a>""")
+                    teacherRegex.findAll(text).forEach { m ->
+                        candidates.add(m.groupValues[1].trim())
+                    }
+                }
+            }
+        }
+        scanArray("cellDetail")
+        scanArray("cellWeekTeacherClassroomDetail")
+        scanArray("titleDetail")
+        scanArray("titleWeekTeacherClassroomDetail")
+        return candidates.filter { it.isNotEmpty() }.distinct().joinToString(", ")
+    }
+
     private fun parseTeacher(weeksAndTeachers: String?): String {
         if (weeksAndTeachers.isNullOrBlank()) return ""
         return weeksAndTeachers.split(";")
@@ -250,64 +344,33 @@ object CqwlxyParser {
         } catch (e: Exception) { e.printStackTrace(); emptyList() }
     }
 
-    private fun mergeAdjacentCourses(courses: List<Course>): List<Course> {
-        val result = mutableListOf<Course>()
-        val groups = courses.groupBy { "${it.name}|${it.room}|${it.teacher}|${it.dayOfWeek}" }
+    // 合并同一课程时间槽下的多位教师（如主讲 + 辅讲条目）
+    private fun mergeCoTeachers(courses: List<Course>): List<Course> {
+        val mergedList = mutableListOf<Course>()
+        val grouped = courses.groupBy { "${it.name}|${it.room}|${it.dayOfWeek}|${it.startNode}|${it.endNode}|${it.weekList.joinToString(",")}" }
 
-        for ((_, groupCourses) in groups) {
-            if (groupCourses.isEmpty()) continue
-            val template = groupCourses.first()
-
-            val weekIntervals = mutableMapOf<Int, MutableList<Pair<Int, Int>>>()
-            for (c in groupCourses) {
-                for (w in c.weekList) {
-                    weekIntervals.getOrPut(w) { mutableListOf() }.add(Pair(c.startNode, c.endNode))
-                }
-            }
-
-            val mergedWeekIntervals = mutableMapOf<Int, List<Pair<Int, Int>>>()
-            for ((w, intervals) in weekIntervals) {
-                val sorted = intervals.sortedBy { it.first }
-                val merged = mutableListOf<Pair<Int, Int>>()
-                for (interval in sorted) {
-                    if (merged.isEmpty()) {
-                        merged.add(interval)
-                    } else {
-                        val last = merged.last()
-                        if (interval.first <= last.second + 1) {
-                            merged[merged.lastIndex] = Pair(last.first, maxOf(last.second, interval.second))
-                        } else {
-                            merged.add(interval)
-                        }
-                    }
-                }
-                mergedWeekIntervals[w] = merged
-            }
-
-            val intervalToWeeks = mutableMapOf<Pair<Int, Int>, MutableList<Int>>()
-            for ((w, intervals) in mergedWeekIntervals) {
-                for (interval in intervals) {
-                    intervalToWeeks.getOrPut(interval) { mutableListOf() }.add(w)
-                }
-            }
-
-            for ((interval, weeks) in intervalToWeeks) {
-                result.add(
-                    template.copy(
-                        id = 0,
-                        startNode = interval.first,
-                        endNode = interval.second,
-                        weekList = weeks.distinct().sorted()
-                    )
-                )
+        for ((_, group) in grouped) {
+            if (group.size == 1) {
+                mergedList.add(group.first())
+            } else {
+                val combinedTeacher = group.map { it.teacher }
+                    .flatMap { it.split(",") }
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+                    .joinToString(", ")
+                mergedList.add(group.first().copy(teacher = combinedTeacher))
             }
         }
-        return result
+        return mergedList
     }
 
-    private fun mergeCourses(courses: List<Course>): List<Course> {
-        var current = courses
+    private fun mergeAdjacentCourses(courses: List<Course>): List<Course> {
+        val coTeacherMerged = mergeCoTeachers(courses)
+        var current = coTeacherMerged
         var changed = true
+
+        // 仅在完全相同的周次区间内，合并相连或重叠的连续节次
         while (changed) {
             changed = false
             val next = mutableListOf<Course>()
@@ -324,25 +387,11 @@ object CqwlxyParser {
                     if (c1.name == c2.name && c1.room == c2.room && c1.teacher == c2.teacher && c1.dayOfWeek == c2.dayOfWeek) {
                         val sameWeeks = c1.weekList == c2.weekList
                         val overlappingOrAdjacentNodes = c1.startNode <= c2.endNode + 1 && c2.startNode <= c1.endNode + 1
-                        val sameNodes = c1.startNode == c2.startNode && c1.endNode == c2.endNode
-                        var overlappingOrAdjacentWeeks = false
-                        if (sameNodes) {
-                            for (w1 in c1.weekList) {
-                                for (w2 in c2.weekList) {
-                                    if (w1 - w2 in -1..1) {
-                                        overlappingOrAdjacentWeeks = true
-                                        break
-                                    }
-                                }
-                                if (overlappingOrAdjacentWeeks) break
-                            }
-                        }
 
-                        if ((sameWeeks && overlappingOrAdjacentNodes) || (sameNodes && overlappingOrAdjacentWeeks)) {
+                        if (sameWeeks && overlappingOrAdjacentNodes) {
                             c1 = c1.copy(
                                 startNode = minOf(c1.startNode, c2.startNode),
-                                endNode = maxOf(c1.endNode, c2.endNode),
-                                weekList = (c1.weekList + c2.weekList).distinct().sorted()
+                                endNode = maxOf(c1.endNode, c2.endNode)
                             )
                             consumed[j] = true
                             changed = true
@@ -356,17 +405,34 @@ object CqwlxyParser {
         return current
     }
 
+    private fun mergeCourses(courses: List<Course>): List<Course> {
+        return mergeCoTeachers(courses)
+    }
+
     private fun parseWeeks(weeksStr: String): List<Int> {
         val weeks = mutableListOf<Int>()
-        val parts = weeksStr.split(",")
+        // 截取周次部分，去除方括号及其后的教师或课程性质说明（如 "[讲授]/张嘉彤"、"[]/李杰"）
+        val cleanStr = when {
+            weeksStr.contains("[") -> weeksStr.substringBefore("[")
+            weeksStr.contains("/") -> weeksStr.substringBefore("/")
+            else -> weeksStr
+        }.trim()
+
+        val parts = cleanStr.split(Regex("[,，、]"))
         for (p in parts) {
-            if (p.contains("-")) {
-                val bounds = p.split("-")
-                val start = bounds[0].toIntOrNull()
-                val end = bounds[1].toIntOrNull()
-                if (start != null && end != null) weeks.addAll(start..end)
+            val trimmed = p.replace("周", "").replace("第", "").trim()
+            if (trimmed.contains("-")) {
+                val bounds = trimmed.split("-")
+                val start = bounds.getOrNull(0)?.filter { it.isDigit() }?.toIntOrNull()
+                val end = bounds.getOrNull(1)?.filter { it.isDigit() }?.toIntOrNull()
+                if (start != null && end != null) {
+                    weeks.addAll(start..end)
+                }
             } else {
-                p.toIntOrNull()?.let { weeks.add(it) }
+                val single = trimmed.filter { it.isDigit() }.toIntOrNull()
+                if (single != null) {
+                    weeks.add(single)
+                }
             }
         }
         return weeks.distinct().sorted()

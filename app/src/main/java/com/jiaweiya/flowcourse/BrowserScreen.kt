@@ -53,6 +53,18 @@ import com.tencent.smtt.sdk.WebViewClient
 import android.webkit.JavascriptInterface
 import java.io.ByteArrayInputStream
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
+import com.jiaweiya.flowcourse.parser.ParseAnomaly
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 
 // 纯净伪装的 User-Agent 字符串
 private const val UA_MOBILE = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
@@ -84,10 +96,60 @@ fun BrowserScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     val debugLogs = remember { mutableStateListOf<String>() }
 
+    var pendingAnomalies by remember { mutableStateOf<List<ParseAnomaly>>(emptyList()) }
+    var pendingCoursesToImport by remember { mutableStateOf<List<Course>>(emptyList()) }
+    var showFeedbackChannelDialog by remember { mutableStateOf(false) }
+    var showQQGroupDialog by remember { mutableStateOf(false) }
+
     val logger: (String) -> Unit = { msg ->
         coroutineScope.launch(Dispatchers.Main) {
             debugLogs.add(0, msg)
             if (debugLogs.size > 80) debugLogs.removeAt(debugLogs.lastIndex)
+        }
+    }
+
+    val handleCourseImport: (String) -> Unit = { rawResult ->
+        coroutineScope.launch {
+            if (rawResult.isBlank() || rawResult == "null" || rawResult == "\"\"" || rawResult == "\"FETCHING\"" || rawResult == "FETCHING" || rawResult == "\"CACHED\"" || rawResult == "CACHED") {
+                return@launch
+            }
+
+            var content = rawResult
+            try {
+                content = Gson().fromJson(rawResult, String::class.java)
+            } catch (e: Exception) {
+                if (content.startsWith("\"") && content.endsWith("\"")) {
+                    content = content.substring(1, content.length - 1)
+                        .replace("\\\"", "\"")
+                        .replace("\\n", "\n")
+                        .replace("\\t", "\t")
+                        .replace("\\u003C", "<")
+                }
+            }
+
+            logger("[解析入口] 正在提交给解析器处理，长度: " + content.length)
+            val detectedAnomalies = mutableListOf<ParseAnomaly>()
+            val newCourses = withContext(Dispatchers.IO) {
+                CqwlxyParser.parseCourseFromHtml(
+                    content = content,
+                    log = logger,
+                    autoMergeAdjacent = autoMergeAdjacent,
+                    onAnomaly = { detectedAnomalies.add(it) }
+                )
+            }
+            if (newCourses.isNotEmpty()) {
+                if (detectedAnomalies.isNotEmpty()) {
+                    pendingAnomalies = detectedAnomalies
+                    pendingCoursesToImport = newCourses
+                } else {
+                    onImportCourses(newCourses)
+                    Toast.makeText(context, "大功告成！导入了 " + newCourses.size + " 节课", Toast.LENGTH_SHORT).show()
+                    onBackClick()
+                }
+            } else {
+                logger("[解析失败] 未能识别出课程，请点击右上角警告图标查看日志详情")
+                Toast.makeText(context, "解析失败：未能识别到有效课程信息", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -330,38 +392,6 @@ fun BrowserScreen(
                 },
                 floatingActionButton = {
                     if (showImportButton) {
-                        val handleCourseImport: (String) -> Unit = { rawResult ->
-                            coroutineScope.launch {
-                                if (rawResult.isBlank() || rawResult == "null" || rawResult == "\"\"" || rawResult == "\"FETCHING\"" || rawResult == "FETCHING" || rawResult == "\"CACHED\"" || rawResult == "CACHED") {
-                                    return@launch
-                                }
-
-                                var content = rawResult
-                                try {
-                                    content = Gson().fromJson(rawResult, String::class.java)
-                                } catch (e: Exception) {
-                                    if (content.startsWith("\"") && content.endsWith("\"")) {
-                                        content = content.substring(1, content.length - 1)
-                                            .replace("\\\"", "\"")
-                                            .replace("\\n", "\n")
-                                            .replace("\\t", "\t")
-                                            .replace("\\u003C", "<")
-                                    }
-                                }
-
-                                logger("[解析入口] 正在提交给解析器处理，长度: " + content.length)
-                                val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(content, logger, autoMergeAdjacent) }
-                                if (newCourses.isNotEmpty()) {
-                                    onImportCourses(newCourses)
-                                    Toast.makeText(context, "大功告成！导入了 ${newCourses.size} 节课", Toast.LENGTH_SHORT).show()
-                                    onBackClick()
-                                } else {
-                                    logger("[解析失败] 未能识别出课程，请点击右上角警告图标查看日志详情")
-                                    Toast.makeText(context, "解析失败：未能识别到有效课程信息", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        }
-
                         FloatingActionButton(
                             onClick = {
                                 webViewRef?.evaluateJavascript(extractScript) { result ->
@@ -413,14 +443,7 @@ fun BrowserScreen(
                                 coroutineScope.launch(Dispatchers.Main) {
                                     if (data.isNotBlank()) {
                                         logger("[自动捕获] 成功截获课表POST数据，正在自动解析...")
-                                        val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(data, logger, autoMergeAdjacent) }
-                                        if (newCourses.isNotEmpty()) {
-                                            onImportCourses(newCourses)
-                                            Toast.makeText(context, "自动捕获课表成功！已导入 " + newCourses.size + " 节课", Toast.LENGTH_SHORT).show()
-                                            onBackClick()
-                                        } else {
-                                            logger("[自动捕获] 拦截到的数据未能解析出有效课程")
-                                        }
+                                        handleCourseImport(data)
                                     }
                                 }
                             }
@@ -431,15 +454,7 @@ fun BrowserScreen(
                                 coroutineScope.launch(Dispatchers.Main) {
                                     if (data.isNotBlank()) {
                                         logger("[Bridge回调] 收到数据传输，准备解析...")
-                                        val newCourses = withContext(Dispatchers.IO) { CqwlxyParser.parseCourseFromHtml(data, logger, autoMergeAdjacent) }
-                                        if (newCourses.isNotEmpty()) {
-                                            onImportCourses(newCourses)
-                                            Toast.makeText(context, "大功告成！导入了 ${newCourses.size} 节课", Toast.LENGTH_SHORT).show()
-                                            onBackClick()
-                                        } else {
-                                            logger("[Bridge解析失败] 返回课程为空")
-                                            Toast.makeText(context, "解析失败：未能识别到有效课程信息", Toast.LENGTH_LONG).show()
-                                        }
+                                        handleCourseImport(data)
                                     }
                                 }
                             }
@@ -469,6 +484,23 @@ fun BrowserScreen(
                         val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         cb.setPrimaryClip(ClipData.newPlainText("logs", debugLogs.joinToString("\n")))
                         Toast.makeText(context, "日志已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
+
+            // 课表解析异常提示弹窗
+            if (pendingAnomalies.isNotEmpty()) {
+                ParseAnomalyDialog(
+                    anomalies = pendingAnomalies,
+                    onDismissAndContinue = {
+                        val courses = pendingCoursesToImport
+                        pendingAnomalies = emptyList()
+                        pendingCoursesToImport = emptyList()
+                        if (courses.isNotEmpty()) {
+                            onImportCourses(courses)
+                            Toast.makeText(context, "大功告成！导入了 ${courses.size} 节课", Toast.LENGTH_SHORT).show()
+                            onBackClick()
+                        }
                     }
                 )
             }
@@ -740,5 +772,280 @@ private fun BoxScope.DebugPanelOverlay(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ParseAnomalyDialog(
+    anomalies: List<ParseAnomaly>,
+    onDismissAndContinue: () -> Unit
+) {
+    if (anomalies.isEmpty()) return
+
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+
+    var anomalyIndex by remember { mutableIntStateOf(0) }
+    val safeIndex = anomalyIndex.coerceIn(0, anomalies.lastIndex)
+    val anomaly = anomalies[safeIndex]
+    val isLast = safeIndex == anomalies.lastIndex
+
+    var isJsonExpanded by remember(safeIndex) { mutableStateOf(false) }
+    var showFeedbackChannelDialog by remember { mutableStateOf(false) }
+    var showQQGroupDialog by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismissAndContinue,
+        title = {
+            Text(
+                text = if (anomalies.size > 1) "课表解析异常提示 (${safeIndex + 1}/${anomalies.size})" else "课表解析异常提示",
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                color = MaterialTheme.colorScheme.error
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // 异常标题与原因
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = anomaly.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = anomaly.reason,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        lineHeight = 16.sp
+                    )
+                }
+
+                // 关键变量显示
+                Text("关键变量信息：", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    anomaly.usefulVariables.forEach { (k, v) ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "$k: ",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = v,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                // 仿关于页借物表样式的折叠式完整原始 JSON
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text(
+                            text = if (isJsonExpanded) "点击收起该课程完整原始 JSON" else "点击展开该课程完整原始 JSON",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isJsonExpanded = !isJsonExpanded }
+                                .padding(vertical = 4.dp)
+                        )
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = isJsonExpanded,
+                            enter = expandVertically(
+                                expandFrom = Alignment.Top,
+                                animationSpec = tween(300)
+                            ) + fadeIn(animationSpec = tween(300)),
+                            exit = shrinkVertically(
+                                shrinkTowards = Alignment.Top,
+                                animationSpec = tween(300)
+                            ) + fadeOut(animationSpec = tween(300))
+                        ) {
+                            Column(modifier = Modifier.padding(top = 8.dp)) {
+                                SelectionContainer {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF1E1E1E))
+                                            .padding(8.dp)
+                                    ) {
+                                        Text(
+                                            text = anomaly.rawCourseJson,
+                                            fontSize = 10.sp,
+                                            lineHeight = 14.sp,
+                                            color = Color(0xFF80D8FF),
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    val currentAppVersion = try {
+                        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
+                    } catch (e: Exception) { "1.0.0" }
+
+                    val feedbackText = buildString {
+                        append("【FlowCourse 课表解析异常反馈】\n")
+                        append("应用版本: ").append(currentAppVersion).append("\n")
+                        append("问题类型: ").append(anomaly.title).append("\n")
+                        append("问题说明: ").append(anomaly.reason).append("\n\n")
+                        append("【关键变量信息】\n")
+                        anomaly.usefulVariables.forEach { (k, v) ->
+                            append(k).append(": ").append(v).append("\n")
+                        }
+                        append("\n【该课程完整原始 JSON】\n")
+                        append(anomaly.rawCourseJson)
+                    }
+
+                    val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cb.setPrimaryClip(ClipData.newPlainText("FlowCourseFeedback", feedbackText))
+                    Toast.makeText(context, "异常信息与版本号已复制到剪贴板", Toast.LENGTH_SHORT).show()
+
+                    showFeedbackChannelDialog = true
+                }
+            ) {
+                Text("和开发者反馈", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        confirmButton = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (safeIndex > 0) {
+                    TextButton(onClick = { anomalyIndex-- }) {
+                        Text("上一个")
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                Button(
+                    onClick = {
+                        if (isLast) {
+                            onDismissAndContinue()
+                        } else {
+                            anomalyIndex++
+                        }
+                    }
+                ) {
+                    Text(if (isLast) "已知晓并继续" else "下一个")
+                }
+            }
+        }
+    )
+
+    // 反馈通道选择弹窗
+    if (showFeedbackChannelDialog) {
+        AlertDialog(
+            onDismissRequest = { showFeedbackChannelDialog = false },
+            title = { Text("反馈问题", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(
+                        "异常信息与完整数据已自动复制到剪贴板，请选择反馈渠道：",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = {
+                            showFeedbackChannelDialog = false
+                            uriHandler.openUri("https://github.com/jiaweiyaya/FlowCourse/issues/new")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("在Github中提交issue")
+                    }
+                    Button(
+                        onClick = {
+                            showFeedbackChannelDialog = false
+                            showQQGroupDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("在QQ群中反馈问题")
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showFeedbackChannelDialog = false }) {
+                    Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        )
+    }
+
+    // QQ群二维码弹窗
+    if (showQQGroupDialog) {
+        AlertDialog(
+            onDismissRequest = { showQQGroupDialog = false },
+            title = { Text("加入QQ群", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.qq_qrcode1),
+                        contentDescription = "QQ群二维码",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "1群：1074858712",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showQQGroupDialog = false }) {
+                    Text("关闭", color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { saveQrCodeToGallery(context, coroutineScope) }) {
+                    Text("保存到相册", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        )
     }
 }

@@ -103,6 +103,7 @@ import androidx.compose.animation.core.animateFloatAsState
 
 import com.jiaweiya.flowcourse.widget.TimetableWidget
 import com.jiaweiya.flowcourse.parser.CqwlxyParser
+import com.jiaweiya.flowcourse.parser.ParseAnomaly
 
 // 数据结构定义
 @Immutable
@@ -1591,10 +1592,13 @@ fun TimetableScreen(
         )
     }
 
+    var autoUpdateAnomalies by remember { mutableStateOf<List<ParseAnomaly>>(emptyList()) }
+    var pendingAutoUpdatedCourses by remember { mutableStateOf<List<Course>?>(null) }
+
     if (showAutoUpdateDialog) {
         AutoUpdateTimetableDialog(
             onDismiss = { showAutoUpdateDialog = false },
-            onSuccess = { newCourses ->
+            onSuccess = { newCourses, detectedAnomalies ->
                 showAutoUpdateDialog = false
                 val existingCourses = activeTimetable?.courses ?: emptyList()
                 val processedCourses = newCourses.mapIndexed { index, imported ->
@@ -1611,8 +1615,30 @@ fun TimetableScreen(
                 val newTimetables = timetables.map {
                     if (it.id == activeTimetableId) it.copy(courses = processedCourses, totalWeeks = maxOf(it.totalWeeks, newWeek)) else it
                 }
-                onReorderTimetables(newTimetables)
 
+                if (detectedAnomalies.isNotEmpty()) {
+                    pendingAutoUpdatedCourses = processedCourses
+                    autoUpdateAnomalies = detectedAnomalies
+                } else {
+                    onReorderTimetables(newTimetables)
+                    Toast.makeText(context, "课表自动更新完毕！", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    if (autoUpdateAnomalies.isNotEmpty() && pendingAutoUpdatedCourses != null) {
+        ParseAnomalyDialog(
+            anomalies = autoUpdateAnomalies,
+            onDismissAndContinue = {
+                val courses = pendingAutoUpdatedCourses!!
+                val newWeek = courses.flatMap { it.weekList }.maxOrNull() ?: activeTimetable?.totalWeeks ?: 20
+                val newTimetables = timetables.map {
+                    if (it.id == activeTimetableId) it.copy(courses = courses, totalWeeks = maxOf(it.totalWeeks, newWeek)) else it
+                }
+                onReorderTimetables(newTimetables)
+                autoUpdateAnomalies = emptyList()
+                pendingAutoUpdatedCourses = null
                 Toast.makeText(context, "课表自动更新完毕！", Toast.LENGTH_SHORT).show()
             }
         )
@@ -1805,7 +1831,7 @@ class JSBridge(val onResult: (String) -> Unit) {
 }
 
 @Composable
-fun AutoUpdateTimetableDialog(onDismiss: () -> Unit, onSuccess: (List<Course>) -> Unit) {
+fun AutoUpdateTimetableDialog(onDismiss: () -> Unit, onSuccess: (List<Course>, List<ParseAnomaly>) -> Unit) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
     val defaultUrl = prefs.getString("default_url", "http://www.cqwu.edu.cn/redir/redirTmp.jsp") ?: "http://www.cqwu.edu.cn/redir/redirTmp.jsp"
@@ -1877,14 +1903,19 @@ fun AutoUpdateTimetableDialog(onDismiss: () -> Unit, onSuccess: (List<Course>) -
                                     if (isHandled) return@JSBridge
                                     log("✅ [解析] 解析到课表，正在处理...")
                                     coroutineScope.launch(Dispatchers.IO) {
-                                        val courses = CqwlxyParser.parseCourseFromHtml(html, autoMergeAdjacent = autoMergeAdjacent)
+                                        val detectedAnomalies = mutableListOf<ParseAnomaly>()
+                                        val courses = CqwlxyParser.parseCourseFromHtml(
+                                            content = html,
+                                            autoMergeAdjacent = autoMergeAdjacent,
+                                            onAnomaly = { detectedAnomalies.add(it) }
+                                        )
                                         withContext(Dispatchers.Main) {
                                             if (courses.isNotEmpty()) {
                                                 if (isHandled) return@withContext
                                                 isHandled = true
                                                 log("✅ [成功] 完美解析出 ${courses.size} 门课程！")
                                                 kotlinx.coroutines.delay(600)
-                                                onSuccess(courses)
+                                                onSuccess(courses, detectedAnomalies)
                                             } else {
                                                 log("❌ [错误] 未解析到有效课程")
                                             }

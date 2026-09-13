@@ -7,11 +7,24 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
+// 解析异常信息封装数据类
+data class ParseAnomaly(
+    val title: String,
+    val reason: String,
+    val usefulVariables: Map<String, String>,
+    val rawCourseJson: String
+)
+
 object CqwlxyParser {
-    fun parseCourseFromHtml(content: String, log: ((String) -> Unit)? = null, autoMergeAdjacent: Boolean = true): List<Course> {
+    fun parseCourseFromHtml(
+        content: String,
+        log: ((String) -> Unit)? = null,
+        autoMergeAdjacent: Boolean = true,
+        onAnomaly: ((ParseAnomaly) -> Unit)? = null
+    ): List<Course> {
         val trimmed = content.trim()
         if (trimmed.startsWith("{") && (trimmed.contains("getMyScheduleDetail") || trimmed.contains("arrangedList"))) {
-            return parseCourseFromJson(trimmed, log, autoMergeAdjacent)
+            return parseCourseFromJson(trimmed, log, autoMergeAdjacent, onAnomaly)
         }
         log?.invoke("[解析] 尝试从HTML中匹配表格...")
         val courses = mutableListOf<Course>()
@@ -68,11 +81,21 @@ object CqwlxyParser {
                 }
             }
         } catch (e: Exception) { e.printStackTrace() }
-        return if (autoMergeAdjacent) mergeAdjacentCourses(courses) else mergeCourses(courses)
+        return if (autoMergeAdjacent) {
+            mergeAdjacentCourses(courses, emptyMap(), onAnomaly)
+        } else {
+            mergeCourses(courses, emptyMap(), onAnomaly)
+        }
     }
 
-    fun parseCourseFromJson(jsonStr: String, log: ((String) -> Unit)? = null, autoMergeAdjacent: Boolean = true): List<Course> {
+    fun parseCourseFromJson(
+        jsonStr: String,
+        log: ((String) -> Unit)? = null,
+        autoMergeAdjacent: Boolean = true,
+        onAnomaly: ((ParseAnomaly) -> Unit)? = null
+    ): List<Course> {
         val courses = mutableListOf<Course>()
+        val itemRawJsonMap = mutableMapOf<String, String>()
         try {
             log?.invoke("[JSON解析] 开始解析课程JSON结构，数据长度: " + jsonStr.length)
             val root = JSONObject(jsonStr)
@@ -118,6 +141,44 @@ object CqwlxyParser {
                 val rawPlaceName = item.optString("placeName").trim()
                 val fallbackTeacher = extractTeacherFromHtml(item)
 
+                val rawItemFormattedJson = item.toString(4)
+                itemRawJsonMap[courseName] = rawItemFormattedJson
+
+                // 异常检测 1：教师姓名疑似缺失或为空
+                val directTeacher = parseTeacher(rawWeeksAndTeachers)
+                if (directTeacher.isEmpty()) {
+                    if (fallbackTeacher.isNotEmpty()) {
+                        onAnomaly?.invoke(
+                            ParseAnomaly(
+                                title = "任课教师字段缺失（已从HTML标签中修复）",
+                                reason = "教务接口的 weeksAndTeachers 字段在斜杠后未提供教师姓名（原文: '$rawWeeksAndTeachers'），系统已自动从 cellDetail 标签中恢复识别教师为: '$fallbackTeacher'。",
+                                usefulVariables = mapOf(
+                                    "课程名称" to courseName,
+                                    "星期/节次" to "星期$dayOfWeek 第${startNode}-${endNode}节",
+                                    "weeksAndTeachers原文" to rawWeeksAndTeachers,
+                                    "最终提取到的教师" to fallbackTeacher,
+                                    "placeName原文" to rawPlaceName
+                                ),
+                                rawCourseJson = rawItemFormattedJson
+                            )
+                        )
+                    } else {
+                        onAnomaly?.invoke(
+                            ParseAnomaly(
+                                title = "任课教师解析为空",
+                                reason = "接口返回的 weeksAndTeachers 字段中未包含教师信息，且 HTML 标签中亦未找到任课教师姓名。",
+                                usefulVariables = mapOf(
+                                    "课程名称" to courseName,
+                                    "星期/节次" to "星期$dayOfWeek 第${startNode}-${endNode}节",
+                                    "weeksAndTeachers原文" to rawWeeksAndTeachers,
+                                    "placeName原文" to rawPlaceName
+                                ),
+                                rawCourseJson = rawItemFormattedJson
+                            )
+                        )
+                    }
+                }
+
                 // 拆分以分号连接的多个排课安排（例如不同的教室与对应周次）
                 val wtParts = if (rawWeeksAndTeachers.contains(";")) {
                     rawWeeksAndTeachers.split(";").map { it.trim() }.filter { it.isNotEmpty() }
@@ -132,6 +193,40 @@ object CqwlxyParser {
                 } else emptyList()
 
                 val subCount = maxOf(wtParts.size, placeParts.size)
+
+                // 异常检测 2：多地点/多阶段排课记录（提醒已自动分离绑定）
+                if (subCount > 1) {
+                    onAnomaly?.invoke(
+                        ParseAnomaly(
+                            title = "检测到多地点/多阶段排课（已自动分离绑定）",
+                            reason = "该课程包含分号分隔的多教室或多周次配置（地点: '$rawPlaceName'，周次: '$rawWeeksAndTeachers'）。系统已自动拆分为独立子课程，避免不同周次的教室混淆。",
+                            usefulVariables = mapOf(
+                                "课程名称" to courseName,
+                                "星期/节次" to "星期$dayOfWeek 第${startNode}-${endNode}节",
+                                "涉及地点" to rawPlaceName,
+                                "周次安排" to rawWeeksAndTeachers
+                            ),
+                            rawCourseJson = rawItemFormattedJson
+                        )
+                    )
+                }
+
+                // 异常检测 3：检测到辅讲教师单独排课记录
+                if (rawWeeksAndTeachers.contains("辅讲")) {
+                    onAnomaly?.invoke(
+                        ParseAnomaly(
+                            title = "检测到辅讲教师排课记录",
+                            reason = "教务接口返回了带有[辅讲]标记的独立排课条目（'$rawWeeksAndTeachers'）。系统已自动将其归纳，防止与主讲课程发生冲突。",
+                            usefulVariables = mapOf(
+                                "课程名称" to courseName,
+                                "星期/节次" to "星期$dayOfWeek 第${startNode}-${endNode}节",
+                                "教师信息" to (directTeacher.ifEmpty { fallbackTeacher }),
+                                "上课地点" to rawPlaceName
+                            ),
+                            rawCourseJson = rawItemFormattedJson
+                        )
+                    )
+                }
 
                 if (subCount > 1) {
                     for (k in 0 until subCount) {
@@ -174,6 +269,25 @@ object CqwlxyParser {
 
                     // 将不连续周次拆分为连续段
                     val continuousSegments = splitContinuousWeeks(weekList)
+
+                    // 异常检测 4：非连续周次断档（提醒已切分为连续段）
+                    if (continuousSegments.size > 1) {
+                        onAnomaly?.invoke(
+                            ParseAnomaly(
+                                title = "检测到非连续周次排课（已切分为连续段）",
+                                reason = "该课程上课周次存在空周断档（如 $rawWeeksAndTeachers）。系统已将其自动切分为 ${continuousSegments.size} 段独立的连续周次，避免合在一起导致周数显示错误。",
+                                usefulVariables = mapOf(
+                                    "课程名称" to courseName,
+                                    "星期/节次" to "星期$dayOfWeek 第${startNode}-${endNode}节",
+                                    "原始周次文本" to rawWeeksAndTeachers,
+                                    "切分后的各阶段" to continuousSegments.joinToString(" ; ") { "第${it.first()}-${it.last()}周(共${it.size}周)" },
+                                    "上课教室" to room
+                                ),
+                                rawCourseJson = rawItemFormattedJson
+                            )
+                        )
+                    }
+
                     for (segWeeks in continuousSegments) {
                         courses.add(
                             Course(
@@ -197,7 +311,11 @@ object CqwlxyParser {
             e.printStackTrace()
             log?.invoke("[JSON解析异常] " + e.message)
         }
-        val merged = if (autoMergeAdjacent) mergeAdjacentCourses(courses) else mergeCourses(courses)
+        val merged = if (autoMergeAdjacent) {
+            mergeAdjacentCourses(courses, itemRawJsonMap, onAnomaly)
+        } else {
+            mergeCourses(courses, itemRawJsonMap, onAnomaly)
+        }
         log?.invoke("[JSON解析完成] 最终有效生成课程门数: " + merged.size)
         return merged
     }
@@ -345,7 +463,11 @@ object CqwlxyParser {
     }
 
     // 合并同一课程时间槽下的多位教师（如主讲 + 辅讲条目）
-    private fun mergeCoTeachers(courses: List<Course>): List<Course> {
+    private fun mergeCoTeachers(
+        courses: List<Course>,
+        itemRawJsonMap: Map<String, String> = emptyMap(),
+        onAnomaly: ((ParseAnomaly) -> Unit)? = null
+    ): List<Course> {
         val mergedList = mutableListOf<Course>()
         val grouped = courses.groupBy { "${it.name}|${it.room}|${it.dayOfWeek}|${it.startNode}|${it.endNode}|${it.weekList.joinToString(",")}" }
 
@@ -353,20 +475,45 @@ object CqwlxyParser {
             if (group.size == 1) {
                 mergedList.add(group.first())
             } else {
-                val combinedTeacher = group.map { it.teacher }
+                val individualTeachers = group.map { it.teacher }
                     .flatMap { it.split(",") }
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
                     .distinct()
-                    .joinToString(", ")
-                mergedList.add(group.first().copy(teacher = combinedTeacher))
+
+                val combinedTeacher = individualTeachers.joinToString(", ")
+                val first = group.first()
+
+                // 异常检测 3：检测到同课程同时间多位教师（如主讲+辅讲）
+                val rawJson = itemRawJsonMap[first.name] ?: "{}"
+                onAnomaly?.invoke(
+                    ParseAnomaly(
+                        title = "检测到同课程同时间多位教师（主讲/辅讲）",
+                        reason = "教务系统为该课程在相同时间与地点返回了 ${group.size} 条独立排课记录（如主讲与辅讲老师分别建档）。系统已自动合并为同一门课程以防在课表上误标课程冲突。",
+                        usefulVariables = mapOf(
+                            "课程名称" to first.name,
+                            "星期/节次" to "星期${first.dayOfWeek} 第${first.startNode}-${first.endNode}节",
+                            "涉及教师" to individualTeachers.joinToString(" 与 "),
+                            "合并后教师" to combinedTeacher,
+                            "上课地点" to first.room,
+                            "上课周次" to "第${first.weekList.joinToString(",")}周"
+                        ),
+                        rawCourseJson = rawJson
+                    )
+                )
+
+                mergedList.add(first.copy(teacher = combinedTeacher))
             }
         }
         return mergedList
     }
 
-    private fun mergeAdjacentCourses(courses: List<Course>): List<Course> {
-        val coTeacherMerged = mergeCoTeachers(courses)
+    private fun mergeAdjacentCourses(
+        courses: List<Course>,
+        itemRawJsonMap: Map<String, String> = emptyMap(),
+        onAnomaly: ((ParseAnomaly) -> Unit)? = null
+    ): List<Course> {
+        val coTeacherMerged = mergeCoTeachers(courses, itemRawJsonMap, onAnomaly)
         var current = coTeacherMerged
         var changed = true
 
@@ -405,8 +552,12 @@ object CqwlxyParser {
         return current
     }
 
-    private fun mergeCourses(courses: List<Course>): List<Course> {
-        return mergeCoTeachers(courses)
+    private fun mergeCourses(
+        courses: List<Course>,
+        itemRawJsonMap: Map<String, String> = emptyMap(),
+        onAnomaly: ((ParseAnomaly) -> Unit)? = null
+    ): List<Course> {
+        return mergeCoTeachers(courses, itemRawJsonMap, onAnomaly)
     }
 
     private fun parseWeeks(weeksStr: String): List<Int> {

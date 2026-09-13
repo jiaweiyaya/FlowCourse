@@ -138,8 +138,16 @@ fun BrowserScreen(
                 )
             }
             if (newCourses.isNotEmpty()) {
-                if (detectedAnomalies.isNotEmpty()) {
-                    pendingAnomalies = detectedAnomalies
+                val prefs = context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE)
+                val filteredAnomalies = detectedAnomalies.filter { anomaly ->
+                    when (anomaly.typeKey) {
+                        "warn_discontinuous_weeks", "warn_multi_location" -> prefs.getBoolean(anomaly.typeKey, false)
+                        else -> prefs.getBoolean(anomaly.typeKey, true)
+                    }
+                }
+
+                if (filteredAnomalies.isNotEmpty()) {
+                    pendingAnomalies = filteredAnomalies
                     pendingCoursesToImport = newCourses
                 } else {
                     onImportCourses(newCourses)
@@ -785,6 +793,7 @@ fun ParseAnomalyDialog(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val sharedPrefs = remember { context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE) }
 
     var anomalyIndex by remember { mutableIntStateOf(0) }
     val safeIndex = anomalyIndex.coerceIn(0, anomalies.lastIndex)
@@ -795,8 +804,21 @@ fun ParseAnomalyDialog(
     var showFeedbackChannelDialog by remember { mutableStateOf(false) }
     var showQQGroupDialog by remember { mutableStateOf(false) }
 
+    // 计算当前异常类型是否已被勾选“不再默认提示”
+    var doNotRemindChecked by remember(safeIndex) {
+        val isEnabled = when (anomaly.typeKey) {
+            "warn_discontinuous_weeks", "warn_multi_location" -> sharedPrefs.getBoolean(anomaly.typeKey, false)
+            else -> sharedPrefs.getBoolean(anomaly.typeKey, true)
+        }
+        mutableStateOf(!isEnabled)
+    }
+
     AlertDialog(
         onDismissRequest = onDismissAndContinue,
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnClickOutside = false, // 点击外部区域不响应
+            dismissOnBackPress = true      // 手机物理/手势返回键关闭弹窗
+        ),
         title = {
             Text(
                 text = if (anomalies.size > 1) "课表解析异常提示 (${safeIndex + 1}/${anomalies.size})" else "课表解析异常提示",
@@ -809,7 +831,7 @@ fun ParseAnomalyDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 480.dp)
+                    .heightIn(max = 440.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -863,7 +885,7 @@ fun ParseAnomalyDialog(
                     }
                 }
 
-                // 仿关于页借物表样式的折叠式完整原始 JSON
+                // 仿关于页借物表样式的折叠式完整原始 JSON（自上至下垂直展开）
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -915,54 +937,98 @@ fun ParseAnomalyDialog(
                 }
             }
         },
-        dismissButton = {
-            TextButton(
-                onClick = {
-                    val currentAppVersion = try {
-                        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
-                    } catch (e: Exception) { "1.0.0" }
-
-                    val feedbackText = buildString {
-                        append("【FlowCourse 课表解析异常反馈】\n")
-                        append("应用版本: ").append(currentAppVersion).append("\n")
-                        append("问题类型: ").append(anomaly.title).append("\n")
-                        append("问题说明: ").append(anomaly.reason).append("\n\n")
-                        append("【关键变量信息】\n")
-                        anomaly.usefulVariables.forEach { (k, v) ->
-                            append(k).append(": ").append(v).append("\n")
-                        }
-                        append("\n【该课程完整原始 JSON】\n")
-                        append(anomaly.rawCourseJson)
-                    }
-
-                    val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cb.setPrimaryClip(ClipData.newPlainText("FlowCourseFeedback", feedbackText))
-                    Toast.makeText(context, "异常信息与版本号已复制到剪贴板", Toast.LENGTH_SHORT).show()
-
-                    showFeedbackChannelDialog = true
-                }
-            ) {
-                Text("和开发者反馈", color = MaterialTheme.colorScheme.error)
-            }
-        },
+        dismissButton = null,
         confirmButton = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (safeIndex > 0) {
-                    TextButton(onClick = { anomalyIndex-- }) {
-                        Text("上一个")
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // 第一行按钮：左侧跳过，右侧上一个 / 下一个 / 已知晓并继续
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismissAndContinue) {
+                        Text("跳过", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-                Button(
-                    onClick = {
-                        if (isLast) {
-                            onDismissAndContinue()
-                        } else {
-                            anomalyIndex++
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (safeIndex > 0) {
+                            TextButton(onClick = { anomalyIndex-- }) {
+                                Text("上一个")
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Button(
+                            onClick = {
+                                if (isLast) {
+                                    onDismissAndContinue()
+                                } else {
+                                    anomalyIndex++
+                                }
+                            }
+                        ) {
+                            Text(if (isLast) "知晓并继续" else "下一个")
                         }
                     }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // 第二行按钮：新开一行独立显示，左侧复选框，右侧反馈按钮
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(if (isLast) "已知晓并继续" else "下一个")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                val nextState = !doNotRemindChecked
+                                doNotRemindChecked = nextState
+                                sharedPrefs.edit().putBoolean(anomaly.typeKey, !nextState).apply()
+                            }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Checkbox(
+                            checked = doNotRemindChecked,
+                            onCheckedChange = { checked ->
+                                doNotRemindChecked = checked
+                                sharedPrefs.edit().putBoolean(anomaly.typeKey, !checked).apply()
+                            },
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("默认不提示此类问题", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
+                    TextButton(
+                        onClick = {
+                            val currentAppVersion = try {
+                                context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
+                            } catch (e: Exception) { "1.0.0" }
+
+                            val feedbackText = buildString {
+                                append("【FlowCourse 课表解析异常反馈】\n")
+                                append("应用版本: ").append(currentAppVersion).append("\n")
+                                append("问题类型: ").append(anomaly.title).append("\n")
+                                append("问题说明: ").append(anomaly.reason).append("\n\n")
+                                append("【关键变量信息】\n")
+                                anomaly.usefulVariables.forEach { (k, v) ->
+                                    append(k).append(": ").append(v).append("\n")
+                                }
+                                append("\n【该课程完整原始 JSON】\n")
+                                append(anomaly.rawCourseJson)
+                            }
+
+                            val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cb.setPrimaryClip(ClipData.newPlainText("FlowCourseFeedback", feedbackText))
+                            Toast.makeText(context, "异常信息与版本号已复制到剪贴板", Toast.LENGTH_SHORT).show()
+
+                            showFeedbackChannelDialog = true
+                        }
+                    ) {
+                        Text("和开发者反馈", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         }

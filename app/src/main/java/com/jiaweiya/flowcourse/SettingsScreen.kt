@@ -290,6 +290,7 @@ fun SettingsScreen(
     onRealTimeSliderChange: (Boolean) -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToAgreement: () -> Unit,
+    onNavigateToParseWarningSettings: () -> Unit,
     onNavigateToWebViewSettings: () -> Unit,
     onNavigateToAutoLoginSettings: () -> Unit,
     onNavigateToExportBackup: () -> Unit,
@@ -571,6 +572,19 @@ fun SettingsScreen(
                                 Text("课表解析脚本", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                                 Text(currentParserName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+
+                            SettingsRow(
+                                title = "解析警告显示控制",
+                                subtitle = "自定义导入或更新课表时是否提示特定类型的排课警告",
+                                onClick = onNavigateToParseWarningSettings,
+                                trailingContent = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "进入",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            )
 
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -2359,4 +2373,154 @@ private fun formatCacheSize(sizeInBytes: Long): String {
     }
     val sizeInMiB = sizeInKiB / 1024.0
     return String.format("%.3f MiB", sizeInMiB)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ParseWarningSettingsScreen(onBackClick: () -> Unit) {
+    val context = LocalContext.current
+    val sharedPrefs = remember { context.getSharedPreferences("FlowCourseDB", Context.MODE_PRIVATE) }
+
+    var warnInAutoUpdate by remember { mutableStateOf(sharedPrefs.getBoolean("warn_in_auto_update", true)) }
+    var warnTeacherMissing by remember { mutableStateOf(sharedPrefs.getBoolean("warn_teacher_missing", true)) }
+    var warnCoTeachers by remember { mutableStateOf(sharedPrefs.getBoolean("warn_co_teachers", true)) }
+    var warnDiscontinuousWeeks by remember { mutableStateOf(sharedPrefs.getBoolean("warn_discontinuous_weeks", false)) }
+    var warnMultiLocation by remember { mutableStateOf(sharedPrefs.getBoolean("warn_multi_location", false)) }
+
+    Scaffold(
+        contentWindowInsets = WindowInsets(0.dp),
+        topBar = {
+            TopAppBar(
+                windowInsets = WindowInsets(0.dp),
+                title = { Text("解析警告显示控制", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 8.dp)
+        ) {
+            Text(
+                text = "功能全局开关",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("自动更新课表时提示警告", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("开启后一键更新遇到异常会弹窗，关闭则完全静默更新", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = warnInAutoUpdate,
+                    onCheckedChange = {
+                        warnInAutoUpdate = it
+                        sharedPrefs.edit().putBoolean("warn_in_auto_update", it).apply()
+                    }
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+
+            Text(
+                text = "异常类型提示控制",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("任课教师字段缺失提醒", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("当教务接口教师为空、需从HTML修复时提示", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = warnTeacherMissing,
+                    onCheckedChange = {
+                        warnTeacherMissing = it
+                        sharedPrefs.edit().putBoolean("warn_teacher_missing", it).apply()
+                    }
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("辅讲与多教师合并提醒", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("当包含辅讲或自动合并同课多教师防冲突时提示", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = warnCoTeachers,
+                    onCheckedChange = {
+                        warnCoTeachers = it
+                        sharedPrefs.edit().putBoolean("warn_co_teachers", it).apply()
+                    }
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("非连续周次切分提醒", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("当遇到空周断档并拆分为连续周段时提示", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = warnDiscontinuousWeeks,
+                    onCheckedChange = {
+                        warnDiscontinuousWeeks = it
+                        sharedPrefs.edit().putBoolean("warn_discontinuous_weeks", it).apply()
+                    }
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("多地点多阶段排课提醒", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("当自动拆分不同周次所属的不同教室时提示", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = warnMultiLocation,
+                    onCheckedChange = {
+                        warnMultiLocation = it
+                        sharedPrefs.edit().putBoolean("warn_multi_location", it).apply()
+                    }
+                )
+            }
+        }
+    }
 }

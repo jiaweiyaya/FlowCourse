@@ -666,6 +666,7 @@ class MainActivity : ComponentActivity() {
                                     onRealTimeSliderChange = { real -> realTimeSlider = real },
                                     onNavigateToAbout = { navController.navigate("About") },
                                     onNavigateToAgreement = { navController.navigate("Agreement?readOnly=true") },
+                                    onNavigateToParseWarningSettings = { navController.navigate("ParseWarningSettings") },
                                     onNavigateToWebViewSettings = { navController.navigate("WebViewSettings") },
                                     onNavigateToAutoLoginSettings = { navController.navigate("AutoLoginSettings") },
                                     onNavigateToExportBackup = { navController.navigate("ExportBackup") },
@@ -678,6 +679,14 @@ class MainActivity : ComponentActivity() {
                                     timeLineColor = resolvedTimeLineColor ,
                                     onTimeLineColorChange = { color -> timeLineColor = color }
                                 )
+                            }
+
+                            composable(
+                                route = "ParseWarningSettings",
+                                enterTransition = { slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Left, animationSpec = tween(400)) },
+                                popExitTransition = { slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.Right, animationSpec = tween(400)) }
+                            ) {
+                                ParseWarningSettingsScreen(onBackClick = { navController.popBackStack() })
                             }
 
                             // 2. WebView配置页 (WebViewSettings)
@@ -1915,7 +1924,18 @@ fun AutoUpdateTimetableDialog(onDismiss: () -> Unit, onSuccess: (List<Course>, L
                                                 isHandled = true
                                                 log("✅ [成功] 完美解析出 ${courses.size} 门课程！")
                                                 kotlinx.coroutines.delay(600)
-                                                onSuccess(courses, detectedAnomalies)
+                                                val warnInAutoUpdate = prefs.getBoolean("warn_in_auto_update", true)
+                                                val filteredAnomalies = if (warnInAutoUpdate) {
+                                                    detectedAnomalies.filter { anomaly ->
+                                                        when (anomaly.typeKey) {
+                                                            "warn_discontinuous_weeks", "warn_multi_location" -> prefs.getBoolean(anomaly.typeKey, false)
+                                                            else -> prefs.getBoolean(anomaly.typeKey, true)
+                                                        }
+                                                    }
+                                                } else {
+                                                    emptyList()
+                                                }
+                                                onSuccess(courses, filteredAnomalies)
                                             } else {
                                                 log("❌ [错误] 未解析到有效课程")
                                             }

@@ -9,6 +9,7 @@ import java.io.InputStreamReader
 
 // 解析异常信息封装数据类
 data class ParseAnomaly(
+    val typeKey: String, // 警告类型标识键，用于偏好设置及一键关闭
     val title: String,
     val reason: String,
     val usefulVariables: Map<String, String>,
@@ -150,6 +151,7 @@ object CqwlxyParser {
                     if (fallbackTeacher.isNotEmpty()) {
                         onAnomaly?.invoke(
                             ParseAnomaly(
+                                typeKey = "warn_teacher_missing",
                                 title = "任课教师字段缺失（已从HTML标签中修复）",
                                 reason = "教务接口的 weeksAndTeachers 字段在斜杠后未提供教师姓名（原文: '$rawWeeksAndTeachers'），系统已自动从 cellDetail 标签中恢复识别教师为: '$fallbackTeacher'。",
                                 usefulVariables = mapOf(
@@ -165,6 +167,7 @@ object CqwlxyParser {
                     } else {
                         onAnomaly?.invoke(
                             ParseAnomaly(
+                                typeKey = "warn_teacher_missing",
                                 title = "任课教师解析为空",
                                 reason = "接口返回的 weeksAndTeachers 字段中未包含教师信息，且 HTML 标签中亦未找到任课教师姓名。",
                                 usefulVariables = mapOf(
@@ -198,6 +201,7 @@ object CqwlxyParser {
                 if (subCount > 1) {
                     onAnomaly?.invoke(
                         ParseAnomaly(
+                            typeKey = "warn_multi_location",
                             title = "检测到多地点/多阶段排课（已自动分离绑定）",
                             reason = "该课程包含分号分隔的多教室或多周次配置（地点: '$rawPlaceName'，周次: '$rawWeeksAndTeachers'）。系统已自动拆分为独立子课程，避免不同周次的教室混淆。",
                             usefulVariables = mapOf(
@@ -215,6 +219,7 @@ object CqwlxyParser {
                 if (rawWeeksAndTeachers.contains("辅讲")) {
                     onAnomaly?.invoke(
                         ParseAnomaly(
+                            typeKey = "warn_co_teachers",
                             title = "检测到辅讲教师排课记录",
                             reason = "教务接口返回了带有[辅讲]标记的独立排课条目（'$rawWeeksAndTeachers'）。系统已自动将其归纳，防止与主讲课程发生冲突。",
                             usefulVariables = mapOf(
@@ -274,6 +279,7 @@ object CqwlxyParser {
                     if (continuousSegments.size > 1) {
                         onAnomaly?.invoke(
                             ParseAnomaly(
+                                typeKey = "warn_discontinuous_weeks",
                                 title = "检测到非连续周次排课（已切分为连续段）",
                                 reason = "该课程上课周次存在空周断档（如 $rawWeeksAndTeachers）。系统已将其自动切分为 ${continuousSegments.size} 段独立的连续周次，避免合在一起导致周数显示错误。",
                                 usefulVariables = mapOf(
@@ -484,10 +490,11 @@ object CqwlxyParser {
                 val combinedTeacher = individualTeachers.joinToString(", ")
                 val first = group.first()
 
-                // 异常检测 3：检测到同课程同时间多位教师（如主讲+辅讲）
+                // 异常检测 5：检测到同课程同时间多位教师（如主讲+辅讲）
                 val rawJson = itemRawJsonMap[first.name] ?: "{}"
                 onAnomaly?.invoke(
                     ParseAnomaly(
+                        typeKey = "warn_co_teachers",
                         title = "检测到同课程同时间多位教师（主讲/辅讲）",
                         reason = "教务系统为该课程在相同时间与地点返回了 ${group.size} 条独立排课记录（如主讲与辅讲老师分别建档）。系统已自动合并为同一门课程以防在课表上误标课程冲突。",
                         usefulVariables = mapOf(
